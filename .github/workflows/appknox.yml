@@ -26,6 +26,9 @@ on:
     branches: [ "349/paragraph-scroll" ]
   pull_request:
     branches: [ "349/paragraph-scroll" ]
+permissions:
+  contents: read
+  security-events: write
 jobs:
   appknox:
     runs-on: ubuntu-latest
