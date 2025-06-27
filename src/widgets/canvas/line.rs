@@ -3,25 +3,41 @@ use crate::{
     widgets::canvas::{Painter, Shape},
 };
 
-/// Shape to draw a line from (x1, y1) to (x2, y2) with the given color
-#[derive(Debug, Clone)]
+/// A line from `(x1, y1)` to `(x2, y2)` with the given color
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Line {
+    /// `x` of the starting point
     pub x1: f64,
+    /// `y` of the starting point
     pub y1: f64,
+    /// `x` of the ending point
     pub x2: f64,
+    /// `y` of the ending point
     pub y2: f64,
+    /// Color of the line
     pub color: Color,
+}
+
+impl Line {
+    /// Create a new line from `(x1, y1)` to `(x2, y2)` with the given color
+    pub const fn new(x1: f64, y1: f64, x2: f64, y2: f64, color: Color) -> Self {
+        Self {
+            x1,
+            y1,
+            x2,
+            y2,
+            color,
+        }
+    }
 }
 
 impl Shape for Line {
     fn draw(&self, painter: &mut Painter) {
-        let (x1, y1) = match painter.get_point(self.x1, self.y1) {
-            Some(c) => c,
-            None => return,
+        let Some((x1, y1)) = painter.get_point(self.x1, self.y1) else {
+            return;
         };
-        let (x2, y2) = match painter.get_point(self.x2, self.y2) {
-            Some(c) => c,
-            None => return,
+        let Some((x2, y2)) = painter.get_point(self.x2, self.y2) else {
+            return;
         };
         let (dx, x_range) = if x2 >= x1 {
             (x2 - x1, x1..=x2)
@@ -91,5 +107,159 @@ fn draw_line_high(painter: &mut Painter, x1: usize, y1: usize, x2: usize, y2: us
             d -= 2 * dy;
         }
         d += 2 * dx;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Line;
+    use crate::{assert_buffer_eq, prelude::*, widgets::canvas::Canvas};
+
+    #[allow(clippy::needless_pass_by_value)]
+    #[track_caller]
+    fn test(line: Line, expected_lines: Vec<&str>) {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 10));
+        let canvas = Canvas::default()
+            .marker(Marker::Dot)
+            .x_bounds([0.0, 10.0])
+            .y_bounds([0.0, 10.0])
+            .paint(|context| {
+                context.draw(&line);
+            });
+        canvas.render(buffer.area, &mut buffer);
+
+        let mut expected = Buffer::with_lines(expected_lines);
+        for cell in &mut expected.content {
+            if cell.symbol() == "•" {
+                cell.set_style(Style::new().red());
+            }
+        }
+        assert_buffer_eq!(buffer, expected);
+    }
+
+    #[test]
+    fn off_grid() {
+        test(
+            Line::new(-1.0, -1.0, 10.0, 10.0, Color::Red),
+            vec!["          "; 10],
+        );
+        test(
+            Line::new(0.0, 0.0, 11.0, 11.0, Color::Red),
+            vec!["          "; 10],
+        );
+    }
+
+    #[test]
+    fn horizontal() {
+        test(
+            Line::new(0.0, 0.0, 10.0, 0.0, Color::Red),
+            vec![
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "••••••••••",
+            ],
+        );
+        test(
+            Line::new(10.0, 10.0, 0.0, 10.0, Color::Red),
+            vec![
+                "••••••••••",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+            ],
+        );
+    }
+
+    #[test]
+    fn vertical() {
+        test(
+            Line::new(0.0, 0.0, 0.0, 10.0, Color::Red),
+            vec!["•         "; 10],
+        );
+        test(
+            Line::new(10.0, 10.0, 10.0, 0.0, Color::Red),
+            vec!["         •"; 10],
+        );
+    }
+
+    #[test]
+    fn diagonal() {
+        // dy < dx, x1 < x2
+        test(
+            Line::new(0.0, 0.0, 10.0, 5.0, Color::Red),
+            vec![
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "         •",
+                "       •• ",
+                "     ••   ",
+                "   ••     ",
+                " ••       ",
+                "•         ",
+            ],
+        );
+        // dy < dx, x1 > x2
+        test(
+            Line::new(10.0, 0.0, 0.0, 5.0, Color::Red),
+            vec![
+                "          ",
+                "          ",
+                "          ",
+                "          ",
+                "•         ",
+                " ••       ",
+                "   ••     ",
+                "     ••   ",
+                "       •• ",
+                "         •",
+            ],
+        );
+        // dy > dx, y1 < y2
+        test(
+            Line::new(0.0, 0.0, 5.0, 10.0, Color::Red),
+            vec![
+                "    •     ",
+                "    •     ",
+                "   •      ",
+                "   •      ",
+                "  •       ",
+                "  •       ",
+                " •        ",
+                " •        ",
+                "•         ",
+                "•         ",
+            ],
+        );
+        // dy > dx, y1 > y2
+        test(
+            Line::new(0.0, 10.0, 5.0, 0.0, Color::Red),
+            vec![
+                "•         ",
+                "•         ",
+                " •        ",
+                " •        ",
+                "  •       ",
+                "  •       ",
+                "   •      ",
+                "   •      ",
+                "    •     ",
+                "    •     ",
+            ],
+        );
     }
 }
