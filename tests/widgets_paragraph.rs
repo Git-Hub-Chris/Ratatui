@@ -7,16 +7,13 @@ use ratatui::{
     Terminal,
 };
 
-/// Tests the [`Paragraph`] widget against the expected [`Buffer`] by rendering it onto an equal
-/// area and comparing the rendered and expected content.
-#[allow(clippy::needless_pass_by_value)]
-fn test_case(paragraph: Paragraph, expected: Buffer) {
-    let backend = TestBackend::new(expected.area.width, expected.area.height);
+
     let mut terminal = Terminal::new(backend).unwrap();
 
     terminal
         .draw(|f| {
             let size = f.size();
+
             f.render_widget(paragraph, size);
         })
         .unwrap();
@@ -62,7 +59,7 @@ fn widgets_paragraph_renders_mixed_width_graphemes() {
             let text = vec![Line::from(s)];
             let paragraph = Paragraph::new(text)
                 .block(Block::default().borders(Borders::ALL))
-                .wrap(Wrap { trim: true });
+                .wrap(Wrap::default());
             f.render_widget(paragraph, size);
         })
         .unwrap();
