@@ -1,5 +1,14 @@
 use itertools::Itertools;
-use ratatui::{prelude::*, widgets::*};
+use ratatui::{
+    buffer::Buffer,
+    layout::{Constraint, Layout, Margin, Rect},
+    style::{Styled, Stylize},
+    text::Line,
+    widgets::{
+        Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph,
+        Scrollbar, ScrollbarState, StatefulWidget, Tabs, Widget,
+    },
+};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{RgbSwatch, THEME};
@@ -39,36 +48,40 @@ const EMAILS: &[Email] = &[
     },
 ];
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct EmailTab {
-    selected_index: usize,
+    row_index: usize,
 }
 
 impl EmailTab {
-    pub fn new(selected_index: usize) -> Self {
-        Self {
-            selected_index: selected_index % EMAILS.len(),
-        }
+    /// Select the previous email (with wrap around).
+    pub fn prev(&mut self) {
+        self.row_index = self.row_index.saturating_add(EMAILS.len() - 1) % EMAILS.len();
+    }
+
+    /// Select the next email (with wrap around).
+    pub fn next(&mut self) {
+        self.row_index = self.row_index.saturating_add(1) % EMAILS.len();
     }
 }
 
 impl Widget for EmailTab {
     fn render(self, area: Rect, buf: &mut Buffer) {
         RgbSwatch.render(area, buf);
-        let area = area.inner(&Margin {
+        let area = area.inner(Margin {
             vertical: 1,
             horizontal: 2,
         });
         Clear.render(area, buf);
         let vertical = Layout::vertical([Constraint::Length(5), Constraint::Min(0)]);
-        let [inbox, email] = area.split(&vertical);
-        render_inbox(self.selected_index, inbox, buf);
-        render_email(self.selected_index, email, buf);
+        let [inbox, email] = vertical.areas(area);
+        render_inbox(self.row_index, inbox, buf);
+        render_email(self.row_index, email, buf);
     }
 }
 fn render_inbox(selected_index: usize, area: Rect, buf: &mut Buffer) {
     let vertical = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]);
-    let [tabs, inbox] = area.split(&vertical);
+    let [tabs, inbox] = vertical.areas(area);
     let theme = THEME.email;
     Tabs::new(vec![" Inbox ", " Sent ", " Drafts "])
         .style(theme.tabs)
@@ -123,7 +136,7 @@ fn render_email(selected_index: usize, area: Rect, buf: &mut Buffer) {
     block.render(area, buf);
     if let Some(email) = email {
         let vertical = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]);
-        let [headers_area, body_area] = inner.split(&vertical);
+        let [headers_area, body_area] = vertical.areas(inner);
         let headers = vec![
             Line::from(vec![
                 "From: ".set_style(theme.header),

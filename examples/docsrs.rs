@@ -1,12 +1,35 @@
+//! # [Ratatui] Docs.rs example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
+
 use std::io::{self, stdout};
 
-use crossterm::{
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
+use ratatui::{
+    backend::CrosstermBackend,
+    crossterm::{
+        event::{self, Event, KeyCode},
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+        ExecutableCommand,
+    },
+    layout::{Constraint, Layout},
+    style::{Color, Modifier, Style, Stylize},
+    terminal::{Frame, Terminal},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Paragraph},
 };
-use ratatui::{prelude::*, widgets::*};
 
-/// Example code for libr.rs
+/// Example code for lib.rs
 ///
 /// When cargo-rdme supports doc comments that import from code, this will be imported
 /// rather than copied to the lib.rs file.
@@ -19,7 +42,6 @@ fn main() -> io::Result<()> {
     let mut should_quit = false;
     while !should_quit {
         terminal.draw(match arg.as_str() {
-            "hello_world" => hello_world,
             "layout" => layout,
             "styling" => styling,
             _ => hello_world,
@@ -34,13 +56,11 @@ fn main() -> io::Result<()> {
 
 fn hello_world(frame: &mut Frame) {
     frame.render_widget(
-        Paragraph::new("Hello World!")
-            .block(Block::default().title("Greeting").borders(Borders::ALL)),
+        Paragraph::new("Hello World!").block(Block::bordered().title("Greeting")),
         frame.size(),
     );
 }
 
-use crossterm::event::{self, Event, KeyCode};
 fn handle_events() -> io::Result<bool> {
     if event::poll(std::time::Duration::from_millis(50))? {
         if let Event::Key(key) = event::read()? {
@@ -59,8 +79,8 @@ fn layout(frame: &mut Frame) {
         Constraint::Length(1),
     ]);
     let horizontal = Layout::horizontal([Constraint::Ratio(1, 2); 2]);
-    let [title_bar, main_area, status_bar] = frame.size().split(&vertical);
-    let [left, right] = main_area.split(&horizontal);
+    let [title_bar, main_area, status_bar] = vertical.areas(frame.size());
+    let [left, right] = horizontal.areas(main_area);
 
     frame.render_widget(
         Block::new().borders(Borders::TOP).title("Title Bar"),
@@ -70,8 +90,8 @@ fn layout(frame: &mut Frame) {
         Block::new().borders(Borders::TOP).title("Status Bar"),
         status_bar,
     );
-    frame.render_widget(Block::default().borders(Borders::ALL).title("Left"), left);
-    frame.render_widget(Block::default().borders(Borders::ALL).title("Right"), right);
+    frame.render_widget(Block::bordered().title("Left"), left);
+    frame.render_widget(Block::bordered().title("Right"), right);
 }
 
 fn styling(frame: &mut Frame) {

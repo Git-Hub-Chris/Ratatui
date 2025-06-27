@@ -1,16 +1,13 @@
-use crate::{
-    prelude::*,
-    widgets::{StatefulWidget, Widget},
-};
+use crate::prelude::*;
 
 /// A consistent view into the terminal state for rendering a single frame.
 ///
 /// This is obtained via the closure argument of [`Terminal::draw`]. It is used to render widgets
 /// to the terminal and control the cursor position.
 ///
-/// The changes drawn to the frame are applied only to the current [`Buffer`].
-/// After the closure returns, the current buffer is compared to the previous
-/// buffer and only the changes are applied to the terminal.
+/// The changes drawn to the frame are applied only to the current [`Buffer`]. After the closure
+/// returns, the current buffer is compared to the previous buffer and only the changes are applied
+/// to the terminal. This avoids drawing redundant cells.
 ///
 /// [`Buffer`]: crate::buffer::Buffer
 #[derive(Debug, Hash)]
@@ -52,7 +49,7 @@ impl Frame<'_> {
     /// If your app listens for a resize event from the backend, it should ignore the values from
     /// the event for any calculations that are used to render the current frame and use this value
     /// instead as this is the size of the buffer that is used to render the current frame.
-    pub fn size(&self) -> Rect {
+    pub const fn size(&self) -> Rect {
         self.viewport_area
     }
 
@@ -68,17 +65,38 @@ impl Frame<'_> {
     /// # let backend = TestBackend::new(5, 5);
     /// # let mut terminal = Terminal::new(backend).unwrap();
     /// # let mut frame = terminal.get_frame();
-    /// let block = Block::default();
+    /// let block = Block::new();
     /// let area = Rect::new(0, 0, 5, 5);
     /// frame.render_widget(block, area);
     /// ```
     ///
     /// [`Layout`]: crate::layout::Layout
-    pub fn render_widget<W>(&mut self, widget: W, area: Rect)
-    where
-        W: Widget,
-    {
+    pub fn render_widget<W: Widget>(&mut self, widget: W, area: Rect) {
         widget.render(area, self.buffer);
+    }
+
+    /// Render a [`WidgetRef`] to the current buffer using [`WidgetRef::render_ref`].
+    ///
+    /// Usually the area argument is the size of the current frame or a sub-area of the current
+    /// frame (which can be obtained using [`Layout`] to split the total area).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "unstable-widget-ref")] {
+    /// # use ratatui::{backend::TestBackend, prelude::*, widgets::Block};
+    /// # let backend = TestBackend::new(5, 5);
+    /// # let mut terminal = Terminal::new(backend).unwrap();
+    /// # let mut frame = terminal.get_frame();
+    /// let block = Block::new();
+    /// let area = Rect::new(0, 0, 5, 5);
+    /// frame.render_widget_ref(block, area);
+    /// # }
+    /// ```
+    #[allow(clippy::needless_pass_by_value)]
+    #[stability::unstable(feature = "widget-ref")]
+    pub fn render_widget_ref<W: WidgetRef>(&mut self, widget: W, area: Rect) {
+        widget.render_ref(area, self.buffer);
     }
 
     /// Render a [`StatefulWidget`] to the current buffer using [`StatefulWidget::render`].
@@ -89,7 +107,7 @@ impl Frame<'_> {
     /// The last argument should be an instance of the [`StatefulWidget::State`] associated to the
     /// given [`StatefulWidget`].
     ///
-    /// # Examples
+    /// # Example
     ///
     /// ```rust
     /// # use ratatui::{backend::TestBackend, prelude::*, widgets::*};
@@ -108,6 +126,38 @@ impl Frame<'_> {
         W: StatefulWidget,
     {
         widget.render(area, self.buffer, state);
+    }
+
+    /// Render a [`StatefulWidgetRef`] to the current buffer using
+    /// [`StatefulWidgetRef::render_ref`].
+    ///
+    /// Usually the area argument is the size of the current frame or a sub-area of the current
+    /// frame (which can be obtained using [`Layout`] to split the total area).
+    ///
+    /// The last argument should be an instance of the [`StatefulWidgetRef::State`] associated to
+    /// the given [`StatefulWidgetRef`].
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "unstable-widget-ref")] {
+    /// # use ratatui::{backend::TestBackend, prelude::*, widgets::*};
+    /// # let backend = TestBackend::new(5, 5);
+    /// # let mut terminal = Terminal::new(backend).unwrap();
+    /// # let mut frame = terminal.get_frame();
+    /// let mut state = ListState::default().with_selected(Some(1));
+    /// let list = List::new(vec![ListItem::new("Item 1"), ListItem::new("Item 2")]);
+    /// let area = Rect::new(0, 0, 5, 5);
+    /// frame.render_stateful_widget_ref(list, area, &mut state);
+    /// # }
+    /// ```
+    #[allow(clippy::needless_pass_by_value)]
+    #[stability::unstable(feature = "widget-ref")]
+    pub fn render_stateful_widget_ref<W>(&mut self, widget: W, area: Rect, state: &mut W::State)
+    where
+        W: StatefulWidgetRef,
+    {
+        widget.render_ref(area, self.buffer, state);
     }
 
     /// After drawing this frame, make the cursor visible and put it at the specified (x, y)
@@ -133,7 +183,7 @@ impl Frame<'_> {
     ///
     /// Each time a frame has been rendered, this count is incremented,
     /// providing a consistent way to reference the order and number of frames processed by the
-    /// terminal. When count reaches its maximum value (usize::MAX), it wraps around to zero.
+    /// terminal. When count reaches its maximum value (`usize::MAX`), it wraps around to zero.
     ///
     /// This count is particularly useful when dealing with dynamic content or animations where the
     /// state of the display changes over time. By tracking the frame count, developers can
@@ -149,7 +199,7 @@ impl Frame<'_> {
     /// let current_count = frame.count();
     /// println!("Current frame count: {}", current_count);
     /// ```
-    pub fn count(&self) -> usize {
+    pub const fn count(&self) -> usize {
         self.count
     }
 }

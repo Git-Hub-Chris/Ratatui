@@ -26,7 +26,7 @@
 <div align="center">
 
 [![Crate Badge]][Crate] [![Docs Badge]][API Docs] [![CI Badge]][CI Workflow] [![License
-Badge]](./LICENSE)<br>
+Badge]](./LICENSE) [![Sponsors Badge]][GitHub Sponsors]<br>
 [![Codecov Badge]][Codecov] [![Deps.rs Badge]][Deps.rs] [![Discord Badge]][Discord Server]
 [![Matrix Badge]][Matrix]<br>
 
@@ -43,10 +43,10 @@ Ratatui was forked from the [tui-rs] crate in 2023 in order to continue its deve
 
 ## Installation
 
-Add `ratatui` and `crossterm` as dependencies to your cargo.toml:
+Add `ratatui` as a dependency to your cargo.toml:
 
 ```shell
-cargo add ratatui crossterm
+cargo add ratatui
 ```
 
 Ratatui uses [Crossterm] by default as it works on most platforms. See the [Installation]
@@ -60,6 +60,9 @@ that for each frame, your app must render all widgets that are supposed to be pa
 This is in contrast to the retained mode style of rendering where widgets are updated and then
 automatically redrawn on the next frame. See the [Rendering] section of the [Ratatui Website]
 for more info.
+
+You can also watch the [FOSDEM 2024 talk] about Ratatui which gives a brief introduction to
+terminal user interfaces and showcases the features of Ratatui, along with a hello world demo.
 
 ## Other documentation
 
@@ -107,7 +110,8 @@ module] and the [Backends] section of the [Ratatui Website] for more info.
 
 The drawing logic is delegated to a closure that takes a [`Frame`] instance as argument. The
 [`Frame`] provides the size of the area to draw to and allows the app to render any [`Widget`]
-using the provided [`render_widget`] method. See the [Widgets] section of the [Ratatui Website]
+using the provided [`render_widget`] method. After this closure returns, a diff is performed and
+only the changes are drawn to the terminal. See the [Widgets] section of the [Ratatui Website]
 for more info.
 
 ### Handling events
@@ -122,12 +126,17 @@ Website] for more info. For example, if you are using [Crossterm], you can use t
 ```rust
 use std::io::{self, stdout};
 
-use crossterm::{
-    event::{self, Event, KeyCode},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
+use ratatui::{
+    crossterm::{
+        event::{self, Event, KeyCode},
+        terminal::{
+            disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+        },
+        ExecutableCommand,
+    },
+    prelude::*,
+    widgets::*,
 };
-use ratatui::{prelude::*, widgets::*};
 
 fn main() -> io::Result<()> {
     enable_raw_mode()?;
@@ -158,8 +167,7 @@ fn handle_events() -> io::Result<bool> {
 
 fn ui(frame: &mut Frame) {
     frame.render_widget(
-        Paragraph::new("Hello World!")
-            .block(Block::default().title("Greeting").borders(Borders::ALL)),
+        Paragraph::new("Hello World!").block(Block::bordered().title("Greeting")),
         frame.size(),
     );
 }
@@ -203,14 +211,8 @@ fn ui(frame: &mut Frame) {
         [Constraint::Percentage(50), Constraint::Percentage(50)],
     )
     .split(main_layout[1]);
-    frame.render_widget(
-        Block::default().borders(Borders::ALL).title("Left"),
-        inner_layout[0],
-    );
-    frame.render_widget(
-        Block::default().borders(Borders::ALL).title("Right"),
-        inner_layout[1],
-    );
+    frame.render_widget(Block::bordered().title("Left"), inner_layout[0]);
+    frame.render_widget(Block::bordered().title("Right"), inner_layout[1]);
 }
 ```
 
@@ -301,6 +303,7 @@ Running this example produces the following output:
 [Changelog]: https://github.com/ratatui-org/ratatui/blob/main/CHANGELOG.md
 [Contributing]: https://github.com/ratatui-org/ratatui/blob/main/CONTRIBUTING.md
 [Breaking Changes]: https://github.com/ratatui-org/ratatui/blob/main/BREAKING-CHANGES.md
+[FOSDEM 2024 talk]: https://www.youtube.com/watch?v=NU0q6NOLJ20
 [docsrs-hello]: https://github.com/ratatui-org/ratatui/blob/c3c3c289b1eb8d562afb1931adb4dc719cd48490/examples/docsrs-hello.png?raw=true
 [docsrs-layout]: https://github.com/ratatui-org/ratatui/blob/c3c3c289b1eb8d562afb1931adb4dc719cd48490/examples/docsrs-layout.png?raw=true
 [docsrs-styling]: https://github.com/ratatui-org/ratatui/blob/c3c3c289b1eb8d562afb1931adb4dc719cd48490/examples/docsrs-styling.png?raw=true
@@ -322,23 +325,21 @@ Running this example produces the following output:
 [Termion]: https://crates.io/crates/termion
 [Termwiz]: https://crates.io/crates/termwiz
 [tui-rs]: https://crates.io/crates/tui
-[Crate Badge]: https://img.shields.io/crates/v/ratatui?logo=rust&style=flat-square
-[License Badge]: https://img.shields.io/crates/l/ratatui?style=flat-square
-[CI Badge]:
-    https://img.shields.io/github/actions/workflow/status/ratatui-org/ratatui/ci.yml?style=flat-square&logo=github
+[GitHub Sponsors]: https://github.com/sponsors/ratatui-org
+[Crate Badge]: https://img.shields.io/crates/v/ratatui?logo=rust&style=flat-square&logoColor=E05D44&color=E05D44
+[License Badge]: https://img.shields.io/crates/l/ratatui?style=flat-square&color=1370D3
+[CI Badge]: https://img.shields.io/github/actions/workflow/status/ratatui-org/ratatui/ci.yml?style=flat-square&logo=github
 [CI Workflow]: https://github.com/ratatui-org/ratatui/actions/workflows/ci.yml
-[Codecov Badge]:
-    https://img.shields.io/codecov/c/github/ratatui-org/ratatui?logo=codecov&style=flat-square&token=BAQ8SOKEST
+[Codecov Badge]: https://img.shields.io/codecov/c/github/ratatui-org/ratatui?logo=codecov&style=flat-square&token=BAQ8SOKEST&color=C43AC3&logoColor=C43AC3
 [Codecov]: https://app.codecov.io/gh/ratatui-org/ratatui
 [Deps.rs Badge]: https://deps.rs/repo/github/ratatui-org/ratatui/status.svg?style=flat-square
 [Deps.rs]: https://deps.rs/repo/github/ratatui-org/ratatui
-[Discord Badge]:
-    https://img.shields.io/discord/1070692720437383208?label=discord&logo=discord&style=flat-square
+[Discord Badge]: https://img.shields.io/discord/1070692720437383208?label=discord&logo=discord&style=flat-square&color=1370D3&logoColor=1370D3
 [Discord Server]: https://discord.gg/pMCEU9hNEj
-[Docs Badge]: https://img.shields.io/docsrs/ratatui?logo=rust&style=flat-square
-[Matrix Badge]:
-    https://img.shields.io/matrix/ratatui-general%3Amatrix.org?style=flat-square&logo=matrix&label=Matrix
+[Docs Badge]: https://img.shields.io/docsrs/ratatui?logo=rust&style=flat-square&logoColor=E05D44
+[Matrix Badge]: https://img.shields.io/matrix/ratatui-general%3Amatrix.org?style=flat-square&logo=matrix&label=Matrix&color=C43AC3
 [Matrix]: https://matrix.to/#/#ratatui:matrix.org
+[Sponsors Badge]: https://img.shields.io/github/sponsors/ratatui-org?logo=github&style=flat-square&color=1370D3
 
 <!-- cargo-rdme end -->
 

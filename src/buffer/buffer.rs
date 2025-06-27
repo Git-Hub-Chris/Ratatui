@@ -1,7 +1,4 @@
-use std::{
-    cmp::min,
-    fmt::{Debug, Formatter, Result},
-};
+use std::fmt;
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -35,7 +32,7 @@ use crate::{buffer::Cell, prelude::*};
 ///     "string",
 ///     Style::default().fg(Color::Red).bg(Color::White),
 /// );
-/// let cell = buf.get_mut(5, 0);
+/// let cell = buf.get(5, 0);
 /// assert_eq!(cell.symbol(), "r");
 /// assert_eq!(cell.fg, Color::Red);
 /// assert_eq!(cell.bg, Color::White);
@@ -55,30 +52,30 @@ pub struct Buffer {
 
 impl Buffer {
     /// Returns a Buffer with all cells set to the default one
-    pub fn empty(area: Rect) -> Buffer {
-        let cell = Cell::default();
-        Buffer::filled(area, &cell)
+    #[must_use]
+    pub fn empty(area: Rect) -> Self {
+        Self::filled(area, Cell::EMPTY)
     }
 
     /// Returns a Buffer with all cells initialized with the attributes of the given Cell
-    pub fn filled(area: Rect, cell: &Cell) -> Buffer {
+    #[must_use]
+    pub fn filled(area: Rect, cell: Cell) -> Self {
         let size = area.area() as usize;
-        let mut content = Vec::with_capacity(size);
-        for _ in 0..size {
-            content.push(cell.clone());
-        }
-        Buffer { area, content }
+        let content = vec![cell; size];
+        Self { area, content }
     }
 
     /// Returns a Buffer containing the given lines
-    pub fn with_lines<'a, S>(lines: Vec<S>) -> Buffer
+    #[must_use]
+    pub fn with_lines<'a, Iter>(lines: Iter) -> Self
     where
-        S: Into<Line<'a>>,
+        Iter: IntoIterator,
+        Iter::Item: Into<Line<'a>>,
     {
         let lines = lines.into_iter().map(Into::into).collect::<Vec<_>>();
         let height = lines.len() as u16;
         let width = lines.iter().map(Line::width).max().unwrap_or_default() as u16;
-        let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
+        let mut buffer = Self::empty(Rect::new(0, 0, width, height));
         for (y, line) in lines.iter().enumerate() {
             buffer.set_line(0, y as u16, line, width);
         }
@@ -91,17 +88,19 @@ impl Buffer {
     }
 
     /// Returns the area covered by this buffer
-    pub fn area(&self) -> &Rect {
+    pub const fn area(&self) -> &Rect {
         &self.area
     }
 
     /// Returns a reference to Cell at the given coordinates
+    #[track_caller]
     pub fn get(&self, x: u16, y: u16) -> &Cell {
         let i = self.index_of(x, y);
         &self.content[i]
     }
 
     /// Returns a mutable reference to Cell at the given coordinates
+    #[track_caller]
     pub fn get_mut(&mut self, x: u16, y: u16) -> &mut Cell {
         let i = self.index_of(x, y);
         &mut self.content[i]
@@ -133,6 +132,7 @@ impl Buffer {
     /// // starts at (200, 100).
     /// buffer.index_of(0, 0); // Panics
     /// ```
+    #[track_caller]
     pub fn index_of(&self, x: u16, y: u16) -> usize {
         debug_assert!(
             x >= self.area.left()
@@ -183,67 +183,58 @@ impl Buffer {
     }
 
     /// Print a string, starting at the position (x, y)
-    ///
-    /// `style` accepts any type that is convertible to [`Style`] (e.g. [`Style`], [`Color`], or
-    /// your own type that implements [`Into<Style>`]).
     pub fn set_string<T, S>(&mut self, x: u16, y: u16, string: T, style: S)
     where
         T: AsRef<str>,
         S: Into<Style>,
     {
-        self.set_stringn(x, y, string, usize::MAX, style.into());
+        self.set_stringn(x, y, string, usize::MAX, style);
     }
 
     /// Print at most the first n characters of a string if enough space is available
-    /// until the end of the line
+    /// until the end of the line.
     ///
-    /// `style` accepts any type that is convertible to [`Style`] (e.g. [`Style`], [`Color`], or
-    /// your own type that implements [`Into<Style>`]).
+    /// Use [`Buffer::set_string`] when the maximum amount of characters can be printed.
     pub fn set_stringn<T, S>(
         &mut self,
-        x: u16,
+        mut x: u16,
         y: u16,
         string: T,
-        width: usize,
+        max_width: usize,
         style: S,
     ) -> (u16, u16)
     where
         T: AsRef<str>,
         S: Into<Style>,
     {
+        let max_width = max_width.try_into().unwrap_or(u16::MAX);
+        let mut remaining_width = self.area.right().saturating_sub(x).min(max_width);
+        let graphemes = UnicodeSegmentation::graphemes(string.as_ref(), true)
+            .map(|symbol| (symbol, symbol.width() as u16))
+            .filter(|(_symbol, width)| *width > 0)
+            .map_while(|(symbol, width)| {
+                remaining_width = remaining_width.checked_sub(width)?;
+                Some((symbol, width))
+            });
         let style = style.into();
-        let mut index = self.index_of(x, y);
-        let mut x_offset = x as usize;
-        let graphemes = UnicodeSegmentation::graphemes(string.as_ref(), true);
-        let max_offset = min(self.area.right() as usize, width.saturating_add(x as usize));
-        for s in graphemes {
-            let width = s.width();
-            if width == 0 {
-                continue;
-            }
-            // `x_offset + width > max_offset` could be integer overflow on 32-bit machines if we
-            // change dimensions to usize or u32 and someone resizes the terminal to 1x2^32.
-            if width > max_offset.saturating_sub(x_offset) {
-                break;
-            }
-
-            self.content[index].set_symbol(s);
-            self.content[index].set_style(style);
+        for (symbol, width) in graphemes {
+            self.get_mut(x, y).set_symbol(symbol).set_style(style);
+            let next_symbol = x + width;
+            x += 1;
             // Reset following cells if multi-width (they would be hidden by the grapheme),
-            for i in index + 1..index + width {
-                self.content[i].reset();
+            while x < next_symbol {
+                self.get_mut(x, y).reset();
+                x += 1;
             }
-            index += width;
-            x_offset += width;
         }
-        (x_offset as u16, y)
+        (x, y)
     }
 
     /// Print a line, starting at the position (x, y)
-    pub fn set_line(&mut self, x: u16, y: u16, line: &Line<'_>, width: u16) -> (u16, u16) {
-        let mut remaining_width = width;
+    pub fn set_line(&mut self, x: u16, y: u16, line: &Line<'_>, max_width: u16) -> (u16, u16) {
+        let mut remaining_width = max_width;
         let mut x = x;
-        for span in &line.spans {
+        for span in line {
             if remaining_width == 0 {
                 break;
             }
@@ -252,7 +243,7 @@ impl Buffer {
                 y,
                 span.content.as_ref(),
                 remaining_width as usize,
-                span.style,
+                line.style.patch(span.style),
             );
             let w = pos.0.saturating_sub(x);
             x = pos.0;
@@ -262,8 +253,8 @@ impl Buffer {
     }
 
     /// Print a span, starting at the position (x, y)
-    pub fn set_span(&mut self, x: u16, y: u16, span: &Span<'_>, width: u16) -> (u16, u16) {
-        self.set_stringn(x, y, span.content.as_ref(), width as usize, span.style)
+    pub fn set_span(&mut self, x: u16, y: u16, span: &Span<'_>, max_width: u16) -> (u16, u16) {
+        self.set_stringn(x, y, &span.content, max_width as usize, span.style)
     }
 
     /// Set the style of all cells in the given area.
@@ -287,23 +278,22 @@ impl Buffer {
         if self.content.len() > length {
             self.content.truncate(length);
         } else {
-            self.content.resize(length, Cell::default());
+            self.content.resize(length, Cell::EMPTY);
         }
         self.area = area;
     }
 
     /// Reset all cells in the buffer
     pub fn reset(&mut self) {
-        for c in &mut self.content {
-            c.reset();
+        for cell in &mut self.content {
+            cell.reset();
         }
     }
 
     /// Merge an other buffer into this one
-    pub fn merge(&mut self, other: &Buffer) {
+    pub fn merge(&mut self, other: &Self) {
         let area = self.area.union(other.area);
-        let cell = Cell::default();
-        self.content.resize(area.area() as usize, cell.clone());
+        self.content.resize(area.area() as usize, Cell::EMPTY);
 
         // Move original content to the appropriate space
         let size = self.area.area() as usize;
@@ -313,7 +303,7 @@ impl Buffer {
             let k = ((y - area.y) * area.width + x - area.x) as usize;
             if i != k {
                 self.content[k] = self.content[i].clone();
-                self.content[i] = cell.clone();
+                self.content[i].reset();
             }
         }
 
@@ -357,7 +347,7 @@ impl Buffer {
     /// Next:    `aコ`
     /// Updates: `0: a, 1: コ` (double width symbol at index 1 - skip index 2)
     /// ```
-    pub fn diff<'a>(&self, other: &'a Buffer) -> Vec<(u16, u16, &'a Cell)> {
+    pub fn diff<'a>(&self, other: &'a Self) -> Vec<(u16, u16, &'a Cell)> {
         let previous_buffer = &self.content;
         let next_buffer = &other.content;
 
@@ -382,7 +372,7 @@ impl Buffer {
     }
 }
 
-impl Debug for Buffer {
+impl fmt::Debug for Buffer {
     /// Writes a debug representation of the buffer to the given formatter.
     ///
     /// The format is like a pretty printed struct, with the following fields:
@@ -390,11 +380,14 @@ impl Debug for Buffer {
     /// * `content`: displayed as a list of strings representing the content of the buffer
     /// * `styles`: displayed as a list of: `{ x: 1, y: 2, fg: Color::Red, bg: Color::Blue,
     ///   modifier: Modifier::BOLD }` only showing a value when there is a change in style.
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        f.write_fmt(format_args!(
-            "Buffer {{\n    area: {:?},\n    content: [\n",
-            &self.area
-        ))?;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("Buffer {{\n    area: {:?}", &self.area))?;
+
+        if self.area.is_empty() {
+            return f.write_str("\n}");
+        }
+
+        f.write_str(",\n    content: [\n")?;
         let mut last_style = None;
         let mut styles = vec![];
         for (y, line) in self.content.chunks(self.area.width as usize).enumerate() {
@@ -425,12 +418,13 @@ impl Debug for Buffer {
                     }
                 }
             }
+            f.write_str("\",")?;
             if !overwritten.is_empty() {
                 f.write_fmt(format_args!(
-                    "// hidden by multi-width symbols: {overwritten:?}"
+                    " // hidden by multi-width symbols: {overwritten:?}"
                 ))?;
             }
-            f.write_str("\",\n")?;
+            f.write_str("\n")?;
         }
         f.write_str("    ],\n    styles: [\n")?;
         for s in styles {
@@ -452,20 +446,48 @@ impl Debug for Buffer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::assert_buffer_eq;
+    use std::iter;
 
-    fn cell(s: &str) -> Cell {
-        let mut cell = Cell::default();
-        cell.set_symbol(s);
-        cell
+    use itertools::Itertools;
+    use rstest::{fixture, rstest};
+
+    use super::*;
+
+    #[test]
+    fn debug_empty_buffer() {
+        let buffer = Buffer::empty(Rect::ZERO);
+        let result = format!("{buffer:?}");
+        println!("{result}");
+        let expected = "Buffer {\n    area: Rect { x: 0, y: 0, width: 0, height: 0 }\n}";
+        assert_eq!(result, expected);
+    }
+
+    #[cfg(feature = "underline-color")]
+    #[test]
+    fn debug_grapheme_override() {
+        let buffer = Buffer::with_lines(["a🦀b"]);
+        let result = format!("{buffer:?}");
+        println!("{result}");
+        let expected = indoc::indoc!(
+            r#"
+            Buffer {
+                area: Rect { x: 0, y: 0, width: 4, height: 1 },
+                content: [
+                    "a🦀b", // hidden by multi-width symbols: [(2, " ")]
+                ],
+                styles: [
+                    x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+                ]
+            }"#
+        );
+        assert_eq!(result, expected);
     }
 
     #[test]
-    fn debug() {
-        let mut buf = Buffer::empty(Rect::new(0, 0, 12, 2));
-        buf.set_string(0, 0, "Hello World!", Style::default());
-        buf.set_string(
+    fn debug_some_example() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 12, 2));
+        buffer.set_string(0, 0, "Hello World!", Style::default());
+        buffer.set_string(
             0,
             1,
             "G'day World!",
@@ -474,42 +496,40 @@ mod tests {
                 .bg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         );
+        let result = format!("{buffer:?}");
+        println!("{result}");
         #[cfg(feature = "underline-color")]
-        assert_eq!(
-            format!("{buf:?}"),
-            indoc::indoc!(
-                "
-                Buffer {
-                    area: Rect { x: 0, y: 0, width: 12, height: 2 },
-                    content: [
-                        \"Hello World!\",
-                        \"G'day World!\",
-                    ],
-                    styles: [
-                        x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
-                        x: 0, y: 1, fg: Green, bg: Yellow, underline: Reset, modifier: BOLD,
-                    ]
-                }"
-            )
+        let expected = indoc::indoc!(
+            r#"
+            Buffer {
+                area: Rect { x: 0, y: 0, width: 12, height: 2 },
+                content: [
+                    "Hello World!",
+                    "G'day World!",
+                ],
+                styles: [
+                    x: 0, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+                    x: 0, y: 1, fg: Green, bg: Yellow, underline: Reset, modifier: BOLD,
+                ]
+            }"#
         );
         #[cfg(not(feature = "underline-color"))]
-        assert_eq!(
-            format!("{buf:?}"),
-            indoc::indoc!(
-                "
-                Buffer {
-                    area: Rect { x: 0, y: 0, width: 12, height: 2 },
-                    content: [
-                        \"Hello World!\",
-                        \"G'day World!\",
-                    ],
-                    styles: [
-                        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
-                        x: 0, y: 1, fg: Green, bg: Yellow, modifier: BOLD,
-                    ]
-                }"
-            )
+        let expected = indoc::indoc!(
+            r#"
+            Buffer {
+                area: Rect { x: 0, y: 0, width: 12, height: 2 },
+                content: [
+                    "Hello World!",
+                    "G'day World!",
+                ],
+                styles: [
+                    x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+                    x: 0, y: 1, fg: Green, bg: Yellow, modifier: BOLD,
+                ]
+            }"#
         );
+
+        assert_eq!(result, expected);
     }
 
     #[test]
@@ -553,27 +573,27 @@ mod tests {
 
         // Zero-width
         buffer.set_stringn(0, 0, "aaa", 0, Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["     "]));
+        assert_eq!(buffer, Buffer::with_lines(["     "]));
 
         buffer.set_string(0, 0, "aaa", Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["aaa  "]));
+        assert_eq!(buffer, Buffer::with_lines(["aaa  "]));
 
         // Width limit:
         buffer.set_stringn(0, 0, "bbbbbbbbbbbbbb", 4, Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["bbbb "]));
+        assert_eq!(buffer, Buffer::with_lines(["bbbb "]));
 
         buffer.set_string(0, 0, "12345", Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["12345"]));
+        assert_eq!(buffer, Buffer::with_lines(["12345"]));
 
         // Width truncation:
         buffer.set_string(0, 0, "123456", Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["12345"]));
+        assert_eq!(buffer, Buffer::with_lines(["12345"]));
 
         // multi-line
         buffer = Buffer::empty(Rect::new(0, 0, 5, 2));
         buffer.set_string(0, 0, "12345", Style::default());
         buffer.set_string(0, 1, "67890", Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["12345", "67890"]));
+        assert_eq!(buffer, Buffer::with_lines(["12345", "67890"]));
     }
 
     #[test]
@@ -584,23 +604,25 @@ mod tests {
         // multi-width overwrite
         buffer.set_string(0, 0, "aaaaa", Style::default());
         buffer.set_string(0, 0, "称号", Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["称号a"]));
+        assert_eq!(buffer, Buffer::with_lines(["称号a"]));
     }
 
     #[test]
     fn set_string_zero_width() {
+        assert_eq!("\u{200B}".width(), 0);
+
         let area = Rect::new(0, 0, 1, 1);
         let mut buffer = Buffer::empty(area);
 
         // Leading grapheme with zero width
-        let s = "\u{1}a";
+        let s = "\u{200B}a";
         buffer.set_stringn(0, 0, s, 1, Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["a"]));
+        assert_eq!(buffer, Buffer::with_lines(["a"]));
 
         // Trailing grapheme with zero with
-        let s = "a\u{1}";
+        let s = "a\u{200B}";
         buffer.set_stringn(0, 0, s, 1, Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["a"]));
+        assert_eq!(buffer, Buffer::with_lines(["a"]));
     }
 
     #[test]
@@ -608,37 +630,109 @@ mod tests {
         let area = Rect::new(0, 0, 5, 1);
         let mut buffer = Buffer::empty(area);
         buffer.set_string(0, 0, "コン", Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["コン "]));
+        assert_eq!(buffer, Buffer::with_lines(["コン "]));
 
         // Only 1 space left.
         buffer.set_string(0, 0, "コンピ", Style::default());
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["コン "]));
+        assert_eq!(buffer, Buffer::with_lines(["コン "]));
+    }
+
+    #[fixture]
+    fn small_one_line_buffer() -> Buffer {
+        Buffer::empty(Rect::new(0, 0, 5, 1))
+    }
+
+    #[rstest]
+    #[case::empty("", "     ")]
+    #[case::one("1", "1    ")]
+    #[case::full("12345", "12345")]
+    #[case::overflow("123456", "12345")]
+    fn set_line_raw(
+        mut small_one_line_buffer: Buffer,
+        #[case] content: &str,
+        #[case] expected: &str,
+    ) {
+        let line = Line::raw(content);
+        small_one_line_buffer.set_line(0, 0, &line, 5);
+
+        // note: testing with empty / set_string here instead of with_lines because with_lines calls
+        // set_line
+        let mut expected_buffer = Buffer::empty(small_one_line_buffer.area);
+        expected_buffer.set_string(0, 0, expected, Style::default());
+        assert_eq!(small_one_line_buffer, expected_buffer);
+    }
+
+    #[rstest]
+    #[case::empty("", "     ")]
+    #[case::one("1", "1    ")]
+    #[case::full("12345", "12345")]
+    #[case::overflow("123456", "12345")]
+    fn set_line_styled(
+        mut small_one_line_buffer: Buffer,
+        #[case] content: &str,
+        #[case] expected: &str,
+    ) {
+        let color = Color::Blue;
+        let line = Line::styled(content, color);
+        small_one_line_buffer.set_line(0, 0, &line, 5);
+
+        // note: manually testing the contents here as the Buffer::with_lines calls set_line
+        let actual_contents = small_one_line_buffer
+            .content
+            .iter()
+            .map(Cell::symbol)
+            .join("");
+        let actual_styles = small_one_line_buffer
+            .content
+            .iter()
+            .map(|c| c.fg)
+            .collect_vec();
+
+        // set_line only sets the style for non-empty cells (unlike Line::render which sets the
+        // style for all cells)
+        let expected_styles = iter::repeat(color)
+            .take(content.len().min(5))
+            .chain(iter::repeat(Color::default()).take(5_usize.saturating_sub(content.len())))
+            .collect_vec();
+        assert_eq!(actual_contents, expected);
+        assert_eq!(actual_styles, expected_styles);
     }
 
     #[test]
     fn set_style() {
-        let mut buffer = Buffer::with_lines(vec!["aaaaa", "bbbbb", "ccccc"]);
+        let mut buffer = Buffer::with_lines(["aaaaa", "bbbbb", "ccccc"]);
         buffer.set_style(Rect::new(0, 1, 5, 1), Style::new().red());
-        assert_buffer_eq!(
-            buffer,
-            Buffer::with_lines(vec!["aaaaa".into(), "bbbbb".red(), "ccccc".into(),])
-        );
+        #[rustfmt::skip]
+        let expected = Buffer::with_lines([
+            "aaaaa".into(),
+            "bbbbb".red(),
+            "ccccc".into(),
+        ]);
+        assert_eq!(buffer, expected);
     }
 
     #[test]
     fn set_style_does_not_panic_when_out_of_area() {
-        let mut buffer = Buffer::with_lines(vec!["aaaaa", "bbbbb", "ccccc"]);
+        let mut buffer = Buffer::with_lines(["aaaaa", "bbbbb", "ccccc"]);
         buffer.set_style(Rect::new(0, 1, 10, 3), Style::new().red());
-        assert_buffer_eq!(
-            buffer,
-            Buffer::with_lines(vec!["aaaaa".into(), "bbbbb".red(), "ccccc".red(),])
-        );
+        #[rustfmt::skip]
+        let expected = Buffer::with_lines([
+            "aaaaa".into(),
+            "bbbbb".red(),
+            "ccccc".red(),
+        ]);
+        assert_eq!(buffer, expected);
     }
 
     #[test]
     fn with_lines() {
-        let buffer =
-            Buffer::with_lines(vec!["┌────────┐", "│コンピュ│", "│ーa 上で│", "└────────┘"]);
+        #[rustfmt::skip]
+        let buffer = Buffer::with_lines([
+            "┌────────┐",
+            "│コンピュ│",
+            "│ーa 上で│",
+            "└────────┘",
+        ]);
         assert_eq!(buffer.area.x, 0);
         assert_eq!(buffer.area.y, 0);
         assert_eq!(buffer.area.width, 10);
@@ -651,14 +745,14 @@ mod tests {
         let prev = Buffer::empty(area);
         let next = Buffer::empty(area);
         let diff = prev.diff(&next);
-        assert_eq!(diff, vec![]);
+        assert_eq!(diff, []);
     }
 
     #[test]
     fn diff_empty_filled() {
         let area = Rect::new(0, 0, 40, 40);
         let prev = Buffer::empty(area);
-        let next = Buffer::filled(area, Cell::default().set_symbol("a"));
+        let next = Buffer::filled(area, Cell::new("a"));
         let diff = prev.diff(&next);
         assert_eq!(diff.len(), 40 * 40);
     }
@@ -666,22 +760,22 @@ mod tests {
     #[test]
     fn diff_filled_filled() {
         let area = Rect::new(0, 0, 40, 40);
-        let prev = Buffer::filled(area, Cell::default().set_symbol("a"));
-        let next = Buffer::filled(area, Cell::default().set_symbol("a"));
+        let prev = Buffer::filled(area, Cell::new("a"));
+        let next = Buffer::filled(area, Cell::new("a"));
         let diff = prev.diff(&next);
-        assert_eq!(diff, vec![]);
+        assert_eq!(diff, []);
     }
 
     #[test]
     fn diff_single_width() {
-        let prev = Buffer::with_lines(vec![
+        let prev = Buffer::with_lines([
             "          ",
             "┌Title─┐  ",
             "│      │  ",
             "│      │  ",
             "└──────┘  ",
         ]);
-        let next = Buffer::with_lines(vec![
+        let next = Buffer::with_lines([
             "          ",
             "┌TITLE─┐  ",
             "│      │  ",
@@ -691,116 +785,84 @@ mod tests {
         let diff = prev.diff(&next);
         assert_eq!(
             diff,
-            vec![
-                (2, 1, &cell("I")),
-                (3, 1, &cell("T")),
-                (4, 1, &cell("L")),
-                (5, 1, &cell("E")),
+            [
+                (2, 1, &Cell::new("I")),
+                (3, 1, &Cell::new("T")),
+                (4, 1, &Cell::new("L")),
+                (5, 1, &Cell::new("E")),
             ]
         );
     }
 
     #[test]
-    #[rustfmt::skip]
     fn diff_multi_width() {
-        let prev = Buffer::with_lines(vec![
+        #[rustfmt::skip]
+        let prev = Buffer::with_lines([
             "┌Title─┐  ",
             "└──────┘  ",
         ]);
-        let next = Buffer::with_lines(vec![
+        #[rustfmt::skip]
+        let next = Buffer::with_lines([
             "┌称号──┐  ",
             "└──────┘  ",
         ]);
         let diff = prev.diff(&next);
         assert_eq!(
             diff,
-            vec![
-                (1, 0, &cell("称")),
+            [
+                (1, 0, &Cell::new("称")),
                 // Skipped "i"
-                (3, 0, &cell("号")),
+                (3, 0, &Cell::new("号")),
                 // Skipped "l"
-                (5, 0, &cell("─")),
+                (5, 0, &Cell::new("─")),
             ]
         );
     }
 
     #[test]
     fn diff_multi_width_offset() {
-        let prev = Buffer::with_lines(vec!["┌称号──┐"]);
-        let next = Buffer::with_lines(vec!["┌─称号─┐"]);
+        let prev = Buffer::with_lines(["┌称号──┐"]);
+        let next = Buffer::with_lines(["┌─称号─┐"]);
 
         let diff = prev.diff(&next);
         assert_eq!(
             diff,
-            vec![(1, 0, &cell("─")), (2, 0, &cell("称")), (4, 0, &cell("号")),]
+            [
+                (1, 0, &Cell::new("─")),
+                (2, 0, &Cell::new("称")),
+                (4, 0, &Cell::new("号")),
+            ]
         );
     }
 
     #[test]
     fn diff_skip() {
-        let prev = Buffer::with_lines(vec!["123"]);
-        let mut next = Buffer::with_lines(vec!["456"]);
+        let prev = Buffer::with_lines(["123"]);
+        let mut next = Buffer::with_lines(["456"]);
         for i in 1..3 {
             next.content[i].set_skip(true);
         }
 
         let diff = prev.diff(&next);
-        assert_eq!(diff, vec![(0, 0, &cell("4"))],);
+        assert_eq!(diff, [(0, 0, &Cell::new("4"))],);
     }
 
-    #[test]
-    fn merge() {
-        let mut one = Buffer::filled(
-            Rect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("1"),
-        );
-        let two = Buffer::filled(
-            Rect {
-                x: 0,
-                y: 2,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("2"),
-        );
+    #[rstest]
+    #[case(Rect::new(0, 0, 2, 2), Rect::new(0, 2, 2, 2), ["11", "11", "22", "22"])]
+    #[case(Rect::new(2, 2, 2, 2), Rect::new(0, 0, 2, 2), ["22  ", "22  ", "  11", "  11"])]
+    fn merge<'line, Lines>(#[case] one: Rect, #[case] two: Rect, #[case] expected: Lines)
+    where
+        Lines: IntoIterator,
+        Lines::Item: Into<Line<'line>>,
+    {
+        let mut one = Buffer::filled(one, Cell::new("1"));
+        let two = Buffer::filled(two, Cell::new("2"));
         one.merge(&two);
-        assert_buffer_eq!(one, Buffer::with_lines(vec!["11", "11", "22", "22"]));
+        assert_eq!(one, Buffer::with_lines(expected));
     }
 
     #[test]
-    fn merge2() {
-        let mut one = Buffer::filled(
-            Rect {
-                x: 2,
-                y: 2,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("1"),
-        );
-        let two = Buffer::filled(
-            Rect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("2"),
-        );
-        one.merge(&two);
-        assert_buffer_eq!(
-            one,
-            Buffer::with_lines(vec!["22  ", "22  ", "  11", "  11"])
-        );
-    }
-
-    #[test]
-    fn merge3() {
+    fn merge_with_offset() {
         let mut one = Buffer::filled(
             Rect {
                 x: 3,
@@ -808,7 +870,7 @@ mod tests {
                 width: 2,
                 height: 2,
             },
-            Cell::default().set_symbol("1"),
+            Cell::new("1"),
         );
         let two = Buffer::filled(
             Rect {
@@ -817,67 +879,48 @@ mod tests {
                 width: 3,
                 height: 4,
             },
-            Cell::default().set_symbol("2"),
+            Cell::new("2"),
         );
         one.merge(&two);
-        let mut merged = Buffer::with_lines(vec!["222 ", "222 ", "2221", "2221"]);
-        merged.area = Rect {
+        let mut expected = Buffer::with_lines(["222 ", "222 ", "2221", "2221"]);
+        expected.area = Rect {
             x: 1,
             y: 1,
             width: 4,
             height: 4,
         };
-        assert_buffer_eq!(one, merged);
+        assert_eq!(one, expected);
     }
 
-    #[test]
-    fn merge_skip() {
-        let mut one = Buffer::filled(
-            Rect {
+    #[rstest]
+    #[case(false, true, [false, false, true, true, true, true])]
+    #[case(true, false, [true, true, false, false, false, false])]
+    fn merge_skip(#[case] skip_one: bool, #[case] skip_two: bool, #[case] expected: [bool; 6]) {
+        let mut one = {
+            let area = Rect {
                 x: 0,
                 y: 0,
                 width: 2,
                 height: 2,
-            },
-            Cell::default().set_symbol("1"),
-        );
-        let two = Buffer::filled(
-            Rect {
+            };
+            let mut cell = Cell::new("1");
+            cell.skip = skip_one;
+            Buffer::filled(area, cell)
+        };
+        let two = {
+            let area = Rect {
                 x: 0,
                 y: 1,
                 width: 2,
                 height: 2,
-            },
-            Cell::default().set_symbol("2").set_skip(true),
-        );
+            };
+            let mut cell = Cell::new("2");
+            cell.skip = skip_two;
+            Buffer::filled(area, cell)
+        };
         one.merge(&two);
-        let skipped: Vec<bool> = one.content().iter().map(|c| c.skip).collect();
-        assert_eq!(skipped, vec![false, false, true, true, true, true]);
-    }
-
-    #[test]
-    fn merge_skip2() {
-        let mut one = Buffer::filled(
-            Rect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("1").set_skip(true),
-        );
-        let two = Buffer::filled(
-            Rect {
-                x: 0,
-                y: 1,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("2"),
-        );
-        one.merge(&two);
-        let skipped: Vec<bool> = one.content().iter().map(|c| c.skip).collect();
-        assert_eq!(skipped, vec![true, true, false, false, false, false]);
+        let skipped = one.content().iter().map(|c| c.skip).collect::<Vec<_>>();
+        assert_eq!(skipped, expected);
     }
 
     #[test]
@@ -886,6 +929,6 @@ mod tests {
         let mut buf = Buffer::empty(Rect::new(0, 0, 3, 2));
         buf.set_string(0, 0, "foo", Style::new().red());
         buf.set_string(0, 1, "bar", Style::new().blue());
-        assert_eq!(buf, Buffer::with_lines(vec!["foo".red(), "bar".blue()]));
+        assert_eq!(buf, Buffer::with_lines(["foo".red(), "bar".blue()]));
     }
 }

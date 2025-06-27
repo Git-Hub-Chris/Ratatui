@@ -1,16 +1,5 @@
 name: Continuous Integration
 
-on:
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-  merge_group:
-
 # ensure that the workflow is only triggered once per PR,  subsequent pushes to the PR will cancel
 # and restart the workflow. See https://docs.github.com/en/actions/using-jobs/using-concurrency
 concurrency:
@@ -29,28 +18,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        if: github.event_name != 'pull_request'
         uses: actions/checkout@v4
-      - name: Checkout
-        if: github.event_name == 'pull_request'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
       - name: Install cargo-make
         uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo make lint-format
       - name: Check documentation
         run: cargo make lint-docs
-      - name: Check conventional commits
-        uses: crate-ci/committed@master
-        with:
-          args: "-vv"
-          commits: HEAD
       - name: Check typos
         uses: crate-ci/typos@master
       - name: Lint dependencies
@@ -67,6 +47,8 @@ jobs:
           components: clippy
       - name: Install cargo-make
         uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
       - name: Run cargo make clippy-all
         run: cargo make clippy
 
@@ -83,10 +65,12 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov,cargo-make
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
       - name: Generate coverage
         run: cargo make coverage
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
@@ -95,8 +79,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
-        toolchain: [ "1.70.0", "stable" ]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        toolchain: ["1.74.0", "stable"]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -107,6 +91,8 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
       - name: Install cargo-make
         uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
       - name: Run cargo make check
         run: cargo make check
         env:
@@ -116,7 +102,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -125,6 +111,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-make
         uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
       - name: Test docs
         run: cargo make test-doc
         env:
@@ -134,9 +122,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
-        toolchain: [ "1.70.0", "stable" ]
-        backend: [ crossterm, termion, termwiz ]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        toolchain: ["1.74.0", "stable"]
+        backend: [crossterm, termion, termwiz]
         exclude:
           # termion is not supported on windows
           - os: windows-latest
@@ -153,6 +141,8 @@ jobs:
         uses: taiki-e/install-action@cargo-make
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
       - name: Test ${{ matrix.backend }}
         run: cargo make test-backend ${{ matrix.backend }}
         env:

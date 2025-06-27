@@ -1,19 +1,43 @@
+//! # [Ratatui] Popup example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
+
+// See also https://github.com/joshka/tui-popup and
+// https://github.com/sephiroth74/tui-confirm-dialog
+
 use std::{error::Error, io};
 
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    crossterm::{
+        event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    },
+    layout::{Constraint, Layout, Rect},
+    style::Stylize,
+    terminal::{Frame, Terminal},
+    widgets::{Block, Clear, Paragraph, Wrap},
 };
-use ratatui::{prelude::*, widgets::*};
 
 struct App {
     show_popup: bool,
 }
 
 impl App {
-    fn new() -> App {
-        App { show_popup: false }
+    const fn new() -> Self {
+        Self { show_popup: false }
     }
 }
 
@@ -47,15 +71,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
     loop {
-        terminal.draw(|f| ui(f, &app))?;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Char('p') => app.show_popup = !app.show_popup,
-                    _ => {}
-                }
             }
         }
     }
@@ -65,7 +81,7 @@ fn ui(f: &mut Frame, app: &App) {
     let area = f.size();
 
     let vertical = Layout::vertical([Constraint::Percentage(20), Constraint::Percentage(80)]);
-    let [instructions, content] = area.split(&vertical);
+    let [instructions, content] = vertical.areas(area);
 
     let text = if app.show_popup {
         "Press p to close the popup"
@@ -73,18 +89,15 @@ fn ui(f: &mut Frame, app: &App) {
         "Press p to show the popup"
     };
     let paragraph = Paragraph::new(text.slow_blink())
-        .alignment(Alignment::Center)
+        .centered()
         .wrap(Wrap { trim: true });
     f.render_widget(paragraph, instructions);
 
-    let block = Block::default()
-        .title("Content")
-        .borders(Borders::ALL)
-        .on_blue();
+    let block = Block::bordered().title("Content").on_blue();
     f.render_widget(block, content);
 
     if app.show_popup {
-        let block = Block::default().title("Popup").borders(Borders::ALL);
+        let block = Block::bordered().title("Popup");
         let area = centered_rect(60, 20, area);
         f.render_widget(Clear, area); //this clears out the background
         f.render_widget(block, area);
