@@ -448,7 +448,7 @@ impl Layout {
     /// # }
     pub fn areas<const N: usize>(&self, area: Rect) -> [Rect; N] {
         let (areas, _) = self.split_with_spacers(area);
-        areas.to_vec().try_into().expect("invalid number of rects")
+        areas.as_ref().try_into().expect("invalid number of rects")
     }
 
     /// Split the rect into a number of sub-rects according to the given [`Layout`] and return just
@@ -482,7 +482,7 @@ impl Layout {
     pub fn spacers<const N: usize>(&self, area: Rect) -> [Rect; N] {
         let (_, spacers) = self.split_with_spacers(area);
         spacers
-            .to_vec()
+            .as_ref()
             .try_into()
             .expect("invalid number of rects")
     }
@@ -608,7 +608,7 @@ impl Layout {
         // This is equivalent to storing the solver in `Layout` and calling `solver.reset()` here.
         let mut solver = Solver::new();
 
-        let inner_area = area.inner(&self.margin);
+        let inner_area = area.inner(self.margin);
         let (area_start, area_end) = match self.direction {
             Direction::Horizontal => (
                 f64::from(inner_area.x) * FLOAT_PRECISION_MULTIPLIER,
@@ -1334,7 +1334,6 @@ mod tests {
         use rstest::rstest;
 
         use crate::{
-            assert_buffer_eq,
             layout::flex::Flex,
             prelude::{Constraint::*, *},
             widgets::Paragraph,
@@ -1361,8 +1360,7 @@ mod tests {
                 let s = c.to_string().repeat(area.width as usize);
                 Paragraph::new(s).render(layout[i], &mut buffer);
             }
-            let expected = Buffer::with_lines(vec![expected]);
-            assert_buffer_eq!(buffer, expected);
+            assert_eq!(buffer, Buffer::with_lines([expected]));
         }
 
         #[rstest]
@@ -1883,14 +1881,11 @@ mod tests {
 
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Percentage(10),
-                        Constraint::Max(5),
-                        Constraint::Min(1),
-                    ]
-                    .as_ref(),
-                )
+                .constraints([
+                    Constraint::Percentage(10),
+                    Constraint::Max(5),
+                    Constraint::Min(1),
+                ])
                 .split(target);
 
             assert_eq!(target.height, chunks.iter().map(|r| r.height).sum::<u16>());

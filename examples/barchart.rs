@@ -19,14 +19,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
 use ratatui::{
-    prelude::*,
-    widgets::{Bar, BarChart, BarGroup, Block, Borders, Paragraph},
+    backend::{Backend, CrosstermBackend},
+    crossterm::{
+        event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    },
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    terminal::{Frame, Terminal},
+    text::{Line, Span},
+    widgets::{Bar, BarChart, BarGroup, Block, Paragraph},
 };
 
 struct Company<'a> {
@@ -159,7 +163,7 @@ fn ui(frame: &mut Frame, app: &App) {
     let [left, right] = horizontal.areas(bottom);
 
     let barchart = BarChart::default()
-        .block(Block::default().title("Data1").borders(Borders::ALL))
+        .block(Block::bordered().title("Data1"))
         .data(&app.data)
         .bar_width(9)
         .bar_style(Style::default().fg(Color::Yellow))
@@ -217,7 +221,7 @@ fn draw_bar_with_group_labels(f: &mut Frame, app: &App, area: Rect) {
     let groups = create_groups(app, false);
 
     let mut barchart = BarChart::default()
-        .block(Block::default().title("Data1").borders(Borders::ALL))
+        .block(Block::bordered().title("Data1"))
         .bar_width(7)
         .group_gap(3);
 
@@ -246,7 +250,7 @@ fn draw_horizontal_bars(f: &mut Frame, app: &App, area: Rect) {
     let groups = create_groups(app, true);
 
     let mut barchart = BarChart::default()
-        .block(Block::default().title("Data1").borders(Borders::ALL))
+        .block(Block::bordered().title("Data1"))
         .bar_width(1)
         .group_gap(1)
         .bar_gap(0)
@@ -286,15 +290,13 @@ fn draw_legend(f: &mut Frame, area: Rect) {
             "- Company B",
             Style::default().fg(Color::Yellow),
         )),
-        Line::from(vec![Span::styled(
+        Line::from(Span::styled(
             "- Company C",
             Style::default().fg(Color::White),
-        )]),
+        )),
     ];
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .style(Style::default().fg(Color::White));
+    let block = Block::bordered().style(Style::default().fg(Color::White));
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(paragraph, area);
 }

@@ -15,12 +15,17 @@
 
 use std::io::{self, stdout};
 
-use crossterm::{
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
-};
 use ratatui::{
-    prelude::*,
+    backend::CrosstermBackend,
+    crossterm::{
+        event::{self, Event, KeyCode},
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+        ExecutableCommand,
+    },
+    layout::{Constraint, Layout},
+    style::{Color, Modifier, Style, Stylize},
+    terminal::{Frame, Terminal},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph},
 };
 
@@ -51,13 +56,11 @@ fn main() -> io::Result<()> {
 
 fn hello_world(frame: &mut Frame) {
     frame.render_widget(
-        Paragraph::new("Hello World!")
-            .block(Block::default().title("Greeting").borders(Borders::ALL)),
+        Paragraph::new("Hello World!").block(Block::bordered().title("Greeting")),
         frame.size(),
     );
 }
 
-use crossterm::event::{self, Event, KeyCode};
 fn handle_events() -> io::Result<bool> {
     if event::poll(std::time::Duration::from_millis(50))? {
         if let Event::Key(key) = event::read()? {
@@ -87,8 +90,8 @@ fn layout(frame: &mut Frame) {
         Block::new().borders(Borders::TOP).title("Status Bar"),
         status_bar,
     );
-    frame.render_widget(Block::default().borders(Borders::ALL).title("Left"), left);
-    frame.render_widget(Block::default().borders(Borders::ALL).title("Right"), right);
+    frame.render_widget(Block::bordered().title("Left"), left);
+    frame.render_widget(Block::bordered().title("Right"), right);
 }
 
 fn styling(frame: &mut Frame) {

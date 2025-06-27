@@ -20,10 +20,10 @@
 //!
 //! ## Installation
 //!
-//! Add `ratatui` and `crossterm` as dependencies to your cargo.toml:
+//! Add `ratatui` as a dependency to your cargo.toml:
 //!
 //! ```shell
-//! cargo add ratatui crossterm
+//! cargo add ratatui
 //! ```
 //!
 //! Ratatui uses [Crossterm] by default as it works on most platforms. See the [Installation]
@@ -103,12 +103,17 @@
 //! ```rust,no_run
 //! use std::io::{self, stdout};
 //!
-//! use crossterm::{
-//!     event::{self, Event, KeyCode},
-//!     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-//!     ExecutableCommand,
+//! use ratatui::{
+//!     crossterm::{
+//!         event::{self, Event, KeyCode},
+//!         terminal::{
+//!             disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+//!         },
+//!         ExecutableCommand,
+//!     },
+//!     prelude::*,
+//!     widgets::*,
 //! };
-//! use ratatui::{prelude::*, widgets::*};
 //!
 //! fn main() -> io::Result<()> {
 //!     enable_raw_mode()?;
@@ -139,8 +144,7 @@
 //!
 //! fn ui(frame: &mut Frame) {
 //!     frame.render_widget(
-//!         Paragraph::new("Hello World!")
-//!             .block(Block::default().title("Greeting").borders(Borders::ALL)),
+//!         Paragraph::new("Hello World!").block(Block::bordered().title("Greeting")),
 //!         frame.size(),
 //!     );
 //! }
@@ -184,14 +188,8 @@
 //!         [Constraint::Percentage(50), Constraint::Percentage(50)],
 //!     )
 //!     .split(main_layout[1]);
-//!     frame.render_widget(
-//!         Block::default().borders(Borders::ALL).title("Left"),
-//!         inner_layout[0],
-//!     );
-//!     frame.render_widget(
-//!         Block::default().borders(Borders::ALL).title("Right"),
-//!         inner_layout[1],
-//!     );
+//!     frame.render_widget(Block::bordered().title("Left"), inner_layout[0]);
+//!     frame.render_widget(Block::bordered().title("Right"), inner_layout[1]);
 //! }
 //! ```
 //!
@@ -262,22 +260,6 @@
 //! ![docsrs-styling]
 #![cfg_attr(feature = "document-features", doc = "\n## Features")]
 #![cfg_attr(feature = "document-features", doc = document_features::document_features!())]
-#![cfg_attr(
-    feature = "document-features",
-    doc = "[`CrossTermBackend`]: backend::CrosstermBackend"
-)]
-#![cfg_attr(
-    feature = "document-features",
-    doc = "[`TermionBackend`]: backend::TermionBackend"
-)]
-#![cfg_attr(
-    feature = "document-features",
-    doc = "[`TermwizBackend`]: backend::TermwizBackend"
-)]
-#![cfg_attr(
-    feature = "document-features",
-    doc = "[`calendar`]: widgets::calendar::Monthly"
-)]
 //!
 //! [Ratatui Website]: https://ratatui.rs/
 //! [Installation]: https://ratatui.rs/installation/
@@ -323,24 +305,20 @@
 //! [Termwiz]: https://crates.io/crates/termwiz
 //! [tui-rs]: https://crates.io/crates/tui
 //! [GitHub Sponsors]: https://github.com/sponsors/ratatui-org
-//! [Crate Badge]: https://img.shields.io/crates/v/ratatui?logo=rust&style=flat-square
-//! [License Badge]: https://img.shields.io/crates/l/ratatui?style=flat-square
-//! [CI Badge]:
-//!     https://img.shields.io/github/actions/workflow/status/ratatui-org/ratatui/ci.yml?style=flat-square&logo=github
+//! [Crate Badge]: https://img.shields.io/crates/v/ratatui?logo=rust&style=flat-square&logoColor=E05D44&color=E05D44
+//! [License Badge]: https://img.shields.io/crates/l/ratatui?style=flat-square&color=1370D3
+//! [CI Badge]: https://img.shields.io/github/actions/workflow/status/ratatui-org/ratatui/ci.yml?style=flat-square&logo=github
 //! [CI Workflow]: https://github.com/ratatui-org/ratatui/actions/workflows/ci.yml
-//! [Codecov Badge]:
-//!     https://img.shields.io/codecov/c/github/ratatui-org/ratatui?logo=codecov&style=flat-square&token=BAQ8SOKEST
+//! [Codecov Badge]: https://img.shields.io/codecov/c/github/ratatui-org/ratatui?logo=codecov&style=flat-square&token=BAQ8SOKEST&color=C43AC3&logoColor=C43AC3
 //! [Codecov]: https://app.codecov.io/gh/ratatui-org/ratatui
 //! [Deps.rs Badge]: https://deps.rs/repo/github/ratatui-org/ratatui/status.svg?style=flat-square
 //! [Deps.rs]: https://deps.rs/repo/github/ratatui-org/ratatui
-//! [Discord Badge]:
-//!     https://img.shields.io/discord/1070692720437383208?label=discord&logo=discord&style=flat-square
+//! [Discord Badge]: https://img.shields.io/discord/1070692720437383208?label=discord&logo=discord&style=flat-square&color=1370D3&logoColor=1370D3
 //! [Discord Server]: https://discord.gg/pMCEU9hNEj
-//! [Docs Badge]: https://img.shields.io/docsrs/ratatui?logo=rust&style=flat-square
-//! [Matrix Badge]:
-//!     https://img.shields.io/matrix/ratatui-general%3Amatrix.org?style=flat-square&logo=matrix&label=Matrix
+//! [Docs Badge]: https://img.shields.io/docsrs/ratatui?logo=rust&style=flat-square&logoColor=E05D44
+//! [Matrix Badge]: https://img.shields.io/matrix/ratatui-general%3Amatrix.org?style=flat-square&logo=matrix&label=Matrix&color=C43AC3
 //! [Matrix]: https://matrix.to/#/#ratatui:matrix.org
-//! [Sponsors Badge]: https://img.shields.io/github/sponsors/ratatui-org?logo=github&style=flat-square
+//! [Sponsors Badge]: https://img.shields.io/github/sponsors/ratatui-org?logo=github&style=flat-square&color=1370D3
 
 // show the feature flags in the generated documentation
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
@@ -349,16 +327,24 @@
     html_favicon_url = "https://raw.githubusercontent.com/ratatui-org/ratatui/main/assets/favicon.ico"
 )]
 
+/// re-export the `crossterm` crate so that users don't have to add it as a dependency
+#[cfg(feature = "crossterm")]
+pub use crossterm;
+#[doc(inline)]
+pub use terminal::{CompletedFrame, Frame, Terminal, TerminalOptions, Viewport};
+/// re-export the `termion` crate so that users don't have to add it as a dependency
+#[cfg(feature = "termion")]
+pub use termion;
+/// re-export the `termwiz` crate so that users don't have to add it as a dependency
+#[cfg(feature = "termwiz")]
+pub use termwiz;
+
 pub mod backend;
 pub mod buffer;
 pub mod layout;
+pub mod prelude;
 pub mod style;
 pub mod symbols;
 pub mod terminal;
 pub mod text;
 pub mod widgets;
-
-#[doc(inline)]
-pub use self::terminal::{CompletedFrame, Frame, Terminal, TerminalOptions, Viewport};
-
-pub mod prelude;

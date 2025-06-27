@@ -13,20 +13,25 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-#![allow(clippy::enum_glob_use)]
-
 use std::{error::Error, io};
 
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
 use itertools::Itertools;
 use ratatui::{
-    layout::Constraint::*,
-    prelude::*,
-    widgets::{Block, Borders, Paragraph},
+    backend::{Backend, CrosstermBackend},
+    crossterm::{
+        event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    },
+    layout::{
+        Constraint,
+        Constraint::{Length, Max, Min, Percentage, Ratio},
+        Layout, Rect,
+    },
+    style::{Color, Style, Stylize},
+    terminal::{Frame, Terminal},
+    text::Line,
+    widgets::{Block, Paragraph},
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -190,10 +195,9 @@ fn render_example_combination(
     title: &str,
     constraints: Vec<(Constraint, Constraint)>,
 ) {
-    let block = Block::default()
+    let block = Block::bordered()
         .title(title.gray())
         .style(Style::reset())
-        .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
     let inner = block.inner(area);
     frame.render_widget(block, area);

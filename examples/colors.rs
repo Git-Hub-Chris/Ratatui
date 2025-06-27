@@ -23,14 +23,18 @@ use std::{
     time::Duration,
 };
 
-use crossterm::{
-    event::{self, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
 use itertools::Itertools;
 use ratatui::{
-    prelude::*,
+    backend::{Backend, CrosstermBackend},
+    crossterm::{
+        event::{self, Event, KeyCode},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    },
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{Color, Style, Stylize},
+    terminal::{Frame, Terminal},
+    text::Line,
     widgets::{Block, Borders, Paragraph},
 };
 
@@ -230,12 +234,12 @@ fn render_indexed_colors(frame: &mut Frame, area: Rect) {
 }
 
 fn title_block(title: String) -> Block<'static> {
-    Block::default()
+    Block::new()
         .borders(Borders::TOP)
-        .border_style(Style::new().dark_gray())
-        .title(title)
         .title_alignment(Alignment::Center)
+        .border_style(Style::new().dark_gray())
         .title_style(Style::new().reset())
+        .title(title)
 }
 
 fn render_indexed_grayscale(frame: &mut Frame, area: Rect) {
