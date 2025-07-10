@@ -1,18 +1,20 @@
-use crate::{app::App, ui};
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
 use std::{
     error::Error,
     io,
     time::{Duration, Instant},
 };
-use tui::{
+
+use ratatui::{
     backend::{Backend, CrosstermBackend},
-    Terminal,
+    crossterm::{
+        event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    },
+    terminal::Terminal,
 };
+
+use crate::{app::App, ui};
 
 pub fn run(tick_rate: Duration, enhanced_graphics: bool) -> Result<(), Box<dyn Error>> {
     // setup terminal
@@ -36,7 +38,7 @@ pub fn run(tick_rate: Duration, enhanced_graphics: bool) -> Result<(), Box<dyn E
     terminal.show_cursor()?;
 
     if let Err(err) = res {
-        println!("{:?}", err)
+        println!("{err:?}");
     }
 
     Ok(())
@@ -51,18 +53,18 @@ fn run_app<B: Backend>(
     loop {
         terminal.draw(|f| ui::draw(f, &mut app))?;
 
-        let timeout = tick_rate
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or_else(|| Duration::from_secs(0));
+        let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if crossterm::event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char(c) => app.on_key(c),
-                    KeyCode::Left => app.on_left(),
-                    KeyCode::Up => app.on_up(),
-                    KeyCode::Right => app.on_right(),
-                    KeyCode::Down => app.on_down(),
-                    _ => {}
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Left | KeyCode::Char('h') => app.on_left(),
+                        KeyCode::Up | KeyCode::Char('k') => app.on_up(),
+                        KeyCode::Right | KeyCode::Char('l') => app.on_right(),
+                        KeyCode::Down | KeyCode::Char('j') => app.on_down(),
+                        KeyCode::Char(c) => app.on_key(c),
+                        _ => {}
+                    }
                 }
             }
         }

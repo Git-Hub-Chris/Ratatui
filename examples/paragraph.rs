@@ -1,180 +1,162 @@
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+//! # [Ratatui] Paragraph example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
+
 use std::{
-    error::Error,
-    io,
+    io::{self},
     time::{Duration, Instant},
 };
-use tui::{
-    backend::{Backend, CrosstermBackend},
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Span, Spans},
-    widgets::{Block, Borders, Paragraph, Wrap},
-    Frame, Terminal,
+
+use crossterm::event::KeyEventKind;
+use ratatui::{
+    buffer::Buffer,
+    crossterm::event::{self, Event, KeyCode},
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Stylize},
+    text::{Line, Masked, Span},
+    widgets::{Block, Paragraph, Widget, Wrap},
 };
 
-struct App {
-    scroll: u16,
-}
+use self::common::{init_terminal, install_hooks, restore_terminal, Tui};
 
-impl App {
-    fn new() -> App {
-        App { scroll: 0 }
-    }
-
-    fn on_tick(&mut self) {
-        self.scroll += 1;
-        self.scroll %= 10;
-    }
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    // create app and run it
-    let tick_rate = Duration::from_millis(250);
-    let app = App::new();
-    let res = run_app(&mut terminal, app, tick_rate);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{:?}", err)
-    }
-
+fn main() -> color_eyre::Result<()> {
+    install_hooks()?;
+    let mut terminal = init_terminal()?;
+    let mut app = App::new();
+    app.run(&mut terminal)?;
+    restore_terminal()?;
     Ok(())
 }
 
-fn run_app<B: Backend>(
-    terminal: &mut Terminal<B>,
-    mut app: App,
-    tick_rate: Duration,
-) -> io::Result<()> {
-    let mut last_tick = Instant::now();
-    loop {
-        terminal.draw(|f| ui(f, &app))?;
+#[derive(Debug)]
+struct App {
+    should_exit: bool,
+    scroll: u16,
+    last_tick: Instant,
+}
 
-        let timeout = tick_rate
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or_else(|| Duration::from_secs(0));
-        if crossterm::event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                if let KeyCode::Char('q') = key.code {
-                    return Ok(());
-                }
+impl App {
+    /// The duration between each tick.
+    const TICK_RATE: Duration = Duration::from_millis(250);
+
+    /// Create a new instance of the app.
+    fn new() -> Self {
+        Self {
+            should_exit: false,
+            scroll: 0,
+            last_tick: Instant::now(),
+        }
+    }
+
+    /// Run the app until the user exits.
+    fn run(&mut self, terminal: &mut Tui) -> io::Result<()> {
+        while !self.should_exit {
+            self.draw(terminal)?;
+            self.handle_events()?;
+            if self.last_tick.elapsed() >= Self::TICK_RATE {
+                self.on_tick();
+                self.last_tick = Instant::now();
             }
         }
-        if last_tick.elapsed() >= tick_rate {
-            app.on_tick();
-            last_tick = Instant::now();
+        Ok(())
+    }
+
+    /// Draw the app to the terminal.
+    fn draw(&mut self, terminal: &mut Tui) -> io::Result<()> {
+        terminal.draw(|frame| frame.render_widget(self, frame.size()))?;
+        Ok(())
+    }
+
+
+            }
         }
+        Ok(())
+    }
+
+    /// Update the app state on each tick.
+    fn on_tick(&mut self) {
+        self.scroll = (self.scroll + 1) % 10;
     }
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
-    let size = f.size();
+impl Widget for &mut App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let areas = Layout::vertical([Constraint::Max(9); 4]).split(area);
+        Paragraph::new(create_lines(area))
+            .block(title_block("Default alignment (Left), no wrap"))
+            .gray()
+            .render(areas[0], buf);
+        Paragraph::new(create_lines(area))
+            .block(title_block("Default alignment (Left), with wrap"))
+            .gray()
+            .wrap(Wrap { trim: true })
+            .render(areas[1], buf);
+        Paragraph::new(create_lines(area))
+            .block(title_block("Right alignment, with wrap"))
+            .gray()
+            .right_aligned()
+            .wrap(Wrap { trim: true })
+            .render(areas[2], buf);
+        Paragraph::new(create_lines(area))
+            .block(title_block("Center alignment, with wrap, with scroll"))
+            .gray()
+            .centered()
+            .wrap(Wrap { trim: true })
+            .scroll((self.scroll, 0))
+            .render(areas[3], buf);
+    }
+}
 
-    // Words made "loooong" to demonstrate line breaking.
-    let s = "Veeeeeeeeeeeeeeeery    loooooooooooooooooong   striiiiiiiiiiiiiiiiiiiiiiiiiing.   ";
-    let mut long_line = s.repeat(usize::from(size.width) / s.len() + 4);
-    long_line.push('\n');
+/// Create a bordered block with a title.
+fn title_block(title: &str) -> Block {
+    Block::bordered()
+        .gray()
+        .title(title.bold().into_centered_line())
+}
 
-    let block = Block::default().style(Style::default().bg(Color::White).fg(Color::Black));
-    f.render_widget(block, size);
+/// Create some lines to display in the paragraph.
+fn create_lines(area: Rect) -> Vec<Line<'static>> {
+    let short_line = "A long line to demonstrate line wrapping. ";
+    let long_line = short_line.repeat(usize::from(area.width) / short_line.len() + 4);
+    let mut styled_spans = vec![];
+    for span in [
+        "Styled".blue(),
+        "Spans".red().on_white(),
+        "Bold".bold(),
+        "Italic".italic(),
+        "Underlined".underlined(),
+        "Strikethrough".crossed_out(),
+    ] {
+        styled_spans.push(span);
+        styled_spans.push(" ".into());
+    }
+    vec![
+        Line::raw("Unstyled Line"),
+        Line::raw("Styled Line").black().on_red().bold().italic(),
+        Line::from(styled_spans),
+        Line::from(long_line.green().italic()),
+        Line::from_iter([
+            "Masked text: ".into(),
+            Span::styled(Masked::new("my secret password", '*'), Color::Red),
+        ]),
+    ]
+}
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(5)
-        .constraints(
-            [
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-            ]
-            .as_ref(),
-        )
-        .split(size);
-
-    let text = vec![
-        Spans::from("This is a line "),
-        Spans::from(Span::styled(
-            "This is a line   ",
-            Style::default().fg(Color::Red),
-        )),
-        Spans::from(Span::styled(
-            "This is a line",
-            Style::default().bg(Color::Blue),
-        )),
-        Spans::from(Span::styled(
-            "This is a longer line",
-            Style::default().add_modifier(Modifier::CROSSED_OUT),
-        )),
-        Spans::from(Span::styled(&long_line, Style::default().bg(Color::Green))),
-        Spans::from(Span::styled(
-            "This is a line",
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::ITALIC),
-        )),
-    ];
-
-    let create_block = |title| {
-        Block::default()
-            .borders(Borders::ALL)
-            .style(Style::default().bg(Color::White).fg(Color::Black))
-            .title(Span::styled(
-                title,
-                Style::default().add_modifier(Modifier::BOLD),
-            ))
-    };
-    let paragraph = Paragraph::new(text.clone())
-        .style(Style::default().bg(Color::White).fg(Color::Black))
-        .block(create_block("Left, no wrap"))
-        .alignment(Alignment::Left);
-    f.render_widget(paragraph, chunks[0]);
-    let paragraph = Paragraph::new(text.clone())
-        .style(Style::default().bg(Color::White).fg(Color::Black))
-        .block(create_block("Left, wrap"))
-        .alignment(Alignment::Left)
-        .wrap(Wrap {
-            trim: true,
-            break_words: false,
-        });
-    f.render_widget(paragraph, chunks[1]);
-    let paragraph = Paragraph::new(text.clone())
-        .style(Style::default().bg(Color::White).fg(Color::Black))
-        .block(create_block("Center, wrap"))
-        .alignment(Alignment::Center)
-        .wrap(Wrap {
-            trim: true,
-            break_words: false,
-        })
-        .scroll((app.scroll, 0));
-    f.render_widget(paragraph, chunks[2]);
-    let paragraph = Paragraph::new(text)
-        .style(Style::default().bg(Color::White).fg(Color::Black))
-        .block(create_block("Right, wrap (break words)"))
-        .alignment(Alignment::Right)
-        .wrap(Wrap {
-            trim: true,
-            break_words: true,
-        });
-    f.render_widget(paragraph, chunks[3]);
+/// A module for common functionality used in the examples.
+mod common {
+    use std::{
+        io::{self, stdout, Stdout},
+        panic,
+    
 }

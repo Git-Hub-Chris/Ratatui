@@ -6,7 +6,7 @@ fn backend_termion_should_only_write_diffs() -> Result<(), Box<dyn std::error::E
     let mut bytes = Vec::new();
     let mut stdout = Cursor::new(&mut bytes);
     {
-        use tui::{
+        use ratatui::{
             backend::TermionBackend, layout::Rect, widgets::Paragraph, Terminal, TerminalOptions,
             Viewport,
         };
@@ -15,7 +15,7 @@ fn backend_termion_should_only_write_diffs() -> Result<(), Box<dyn std::error::E
         let mut terminal = Terminal::with_options(
             backend,
             TerminalOptions {
-                viewport: Viewport::fixed(area),
+                viewport: Viewport::Fixed(area),
             },
         )?;
         terminal.draw(|f| {
@@ -30,7 +30,7 @@ fn backend_termion_should_only_write_diffs() -> Result<(), Box<dyn std::error::E
     }
 
     let expected = {
-        use termion::{color, cursor, style};
+        use ratatui::termion::{color, cursor, style};
         let mut s = String::new();
         // First draw
         write!(s, "{}", cursor::Goto(1, 1))?;

@@ -1,19 +1,17 @@
-use crate::{buffer::Buffer, layout::Rect, widgets::Widget};
+use crate::prelude::*;
 
 /// A widget to clear/reset a certain area to allow overdrawing (e.g. for popups).
 ///
-/// This widget **cannot be used to clear the terminal on the first render** as `tui` assumes the
-/// render area is empty. Use [`crate::Terminal::clear`] instead.
+/// This widget **cannot be used to clear the terminal on the first render** as `ratatui` assumes
+/// the render area is empty. Use [`crate::Terminal::clear`] instead.
 ///
 /// # Examples
 ///
 /// ```
-/// # use tui::widgets::{Clear, Block, Borders};
-/// # use tui::layout::Rect;
-/// # use tui::Frame;
-/// # use tui::backend::Backend;
-/// fn draw_on_clear<B: Backend>(f: &mut Frame<B>, area: Rect) {
-///     let block = Block::default().title("Block").borders(Borders::ALL);
+/// use ratatui::{prelude::*, widgets::*};
+///
+/// fn draw_on_clear(f: &mut Frame, area: Rect) {
+///     let block = Block::bordered().title("Block");
 ///     f.render_widget(Clear, area); // <- this will clear/reset the area first
 ///     f.render_widget(block, area); // now render the block widget
 /// }
@@ -23,15 +21,43 @@ use crate::{buffer::Buffer, layout::Rect, widgets::Widget};
 ///
 /// For a more complete example how to utilize `Clear` to realize popups see
 /// the example `examples/popup.rs`
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 pub struct Clear;
 
 impl Widget for Clear {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        self.render_ref(area, buf);
+    }
+}
+
+impl WidgetRef for Clear {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         for x in area.left()..area.right() {
             for y in area.top()..area.bottom() {
                 buf.get_mut(x, y).reset();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render() {
+        let mut buffer = Buffer::with_lines(["xxxxxxxxxxxxxxx"; 7]);
+        let clear = Clear;
+        clear.render(Rect::new(1, 2, 3, 4), &mut buffer);
+        let expected = Buffer::with_lines([
+            "xxxxxxxxxxxxxxx",
+            "xxxxxxxxxxxxxxx",
+            "x   xxxxxxxxxxx",
+            "x   xxxxxxxxxxx",
+            "x   xxxxxxxxxxx",
+            "x   xxxxxxxxxxx",
+            "xxxxxxxxxxxxxxx",
+        ]);
+        assert_eq!(buffer, expected);
     }
 }
