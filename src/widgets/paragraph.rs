@@ -38,7 +38,7 @@ const fn get_line_offset(line_width: u16, text_area_width: u16, alignment: Align
 ///     .block(Block::bordered().title("Paragraph"))
 ///     .style(Style::new().white().on_black())
 ///     .alignment(Alignment::Center)
-///     .wrap(Wrap::default());
+
 /// ```
 pub struct Paragraph<'a> {
     /// A block to wrap the widget in
@@ -69,7 +69,7 @@ pub struct Paragraph<'a> {
 /// );
 ///
 /// // With leading spaces trimmed (window width of 30 chars):
-/// Paragraph::new(bullet_points.clone()).wrap(Wrap::default());
+
 /// // Some indented points:
 /// // - First thing goes here and is
 /// // long so that it wraps
@@ -77,7 +77,7 @@ pub struct Paragraph<'a> {
 /// // is long enough to wrap
 ///
 /// // But without trimming, indentation is preserved:
-/// Paragraph::new(bullet_points).wrap(Wrap { trim: false, ..Wrap::default() });
+
 /// // Some indented points:
 /// //     - First thing goes here
 /// // and is long so that it wraps
@@ -88,7 +88,7 @@ pub struct Paragraph<'a> {
 pub struct Wrap {
     /// Should leading whitespace be trimmed
     pub trim: bool,
-    pub scroll_callback: Option<Box<ScrollCallback>>,
+
 }
 
 

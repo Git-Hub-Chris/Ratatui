@@ -88,13 +88,7 @@ fn ui(f: &mut Frame, app: &App) {
     } else {
         "Press p to show the popup"
     };
-    let paragraph = Paragraph::new(text.slow_blink())
-        .centered()
-        .wrap(Wrap { trim: true });
-    f.render_widget(paragraph, instructions);
 
-    let block = Block::bordered().title("Content").on_blue();
-    f.render_widget(block, content);
 
     if app.show_popup {
         let block = Block::bordered().title("Popup");
