@@ -1,3 +1,18 @@
+//! # [Ratatui] Panic Hook example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
+
 //! How to use a panic hook to reset the terminal before printing the panic to
 //! the terminal.
 //!
@@ -14,21 +29,18 @@
 //! That's why this example is set up to show both situations, with and without
 //! the chained panic hook, to see the difference.
 
-#![deny(clippy::all)]
-#![warn(clippy::pedantic, clippy::nursery)]
+use std::{error::Error, io};
 
-use std::error::Error;
-use std::io;
-
-use crossterm::event::{self, Event, KeyCode};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
-
-use ratatui::backend::{Backend, CrosstermBackend};
-use ratatui::layout::Alignment;
-use ratatui::text::Spans;
-use ratatui::widgets::{Block, Borders, Paragraph};
-use ratatui::{Frame, Terminal};
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    crossterm::{
+        event::{self, Event, KeyCode},
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    },
+    terminal::{Frame, Terminal},
+    text::Line,
+    widgets::{Block, Paragraph},
+};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -110,33 +122,31 @@ fn run_tui<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
 }
 
 /// Render the TUI.
-fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
+fn ui(f: &mut Frame, app: &App) {
     let text = vec![
         if app.hook_enabled {
-            Spans::from("HOOK IS CURRENTLY **ENABLED**")
+            Line::from("HOOK IS CURRENTLY **ENABLED**")
         } else {
-            Spans::from("HOOK IS CURRENTLY **DISABLED**")
+            Line::from("HOOK IS CURRENTLY **DISABLED**")
         },
-        Spans::from(""),
-        Spans::from("press `p` to panic"),
-        Spans::from("press `e` to enable the terminal-resetting panic hook"),
-        Spans::from("press any other key to quit without panic"),
-        Spans::from(""),
-        Spans::from("when you panic without the chained hook,"),
-        Spans::from("you will likely have to reset your terminal afterwards"),
-        Spans::from("with the `reset` command"),
-        Spans::from(""),
-        Spans::from("with the chained panic hook enabled,"),
-        Spans::from("you should see the panic report as you would without ratatui"),
-        Spans::from(""),
-        Spans::from("try first without the panic handler to see the difference"),
+        Line::from(""),
+        Line::from("press `p` to panic"),
+        Line::from("press `e` to enable the terminal-resetting panic hook"),
+        Line::from("press any other key to quit without panic"),
+        Line::from(""),
+        Line::from("when you panic without the chained hook,"),
+        Line::from("you will likely have to reset your terminal afterwards"),
+        Line::from("with the `reset` command"),
+        Line::from(""),
+        Line::from("with the chained panic hook enabled,"),
+        Line::from("you should see the panic report as you would without ratatui"),
+        Line::from(""),
+        Line::from("try first without the panic handler to see the difference"),
     ];
 
-    let b = Block::default()
-        .title("Panic Handler Demo")
-        .borders(Borders::ALL);
+    let paragraph = Paragraph::new(text)
+        .block(Block::bordered().title("Panic Handler Demo"))
+        .centered();
 
-    let p = Paragraph::new(text).block(b).alignment(Alignment::Center);
-
-    f.render_widget(p, f.size());
+    f.render_widget(paragraph, f.size());
 }
