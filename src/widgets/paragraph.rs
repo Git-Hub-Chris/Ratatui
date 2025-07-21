@@ -231,6 +231,7 @@ impl Paragraph<'_> {
             return;
         }
 
+
                 }
                 self.draw_lines(text_area, buf, line_composer, self.scroll);
             }
