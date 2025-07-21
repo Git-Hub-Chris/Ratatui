@@ -1,7 +1,9 @@
 use itertools::Itertools;
 
-use super::*;
-use crate::{layout::Flex, prelude::*, widgets::Block};
+#[allow(unused_imports)] // `Cell` is used in the doc comment but not the code
+use super::Cell;
+use super::{HighlightSpacing, Row, TableState};
+use crate::{layout::Flex, prelude::*, style::Styled, widgets::Block};
 
 /// A widget to display data in formatted columns.
 ///
@@ -176,7 +178,11 @@ use crate::{layout::Flex, prelude::*, widgets::Block};
 ///     Row::new(vec!["Row21", "Row22", "Row23"]),
 ///     Row::new(vec!["Row31", "Row32", "Row33"]),
 /// ];
-/// let widths = [Constraint::Length(5), Constraint::Length(5), Constraint::Length(10)];
+/// let widths = [
+///     Constraint::Length(5),
+///     Constraint::Length(5),
+///     Constraint::Length(10),
+/// ];
 /// let table = Table::new(rows, widths)
 ///     .block(Block::new().title("Table"))
 ///     .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
@@ -184,6 +190,7 @@ use crate::{layout::Flex, prelude::*, widgets::Block};
 ///
 /// frame.render_stateful_widget(table, area, &mut table_state);
 /// # }
+/// ```
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Table<'a> {
     /// Data to display in each row
@@ -573,7 +580,7 @@ impl Widget for Table<'_> {
 impl WidgetRef for Table<'_> {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let mut state = TableState::default();
-        StatefulWidget::render(self, area, buf, &mut state);
+        self.render_stateful(area, buf, &mut state);
     }
 }
 
@@ -581,7 +588,14 @@ impl StatefulWidget for Table<'_> {
     type State = TableState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        StatefulWidget::render(&self, area, buf, state);
+        self.render_stateful(area, buf, state);
+    }
+
+    fn render_stateful(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
+    where
+        Self: Sized,
+    {
+        (&self).render_stateful(area, buf, state);
     }
 }
 
@@ -589,14 +603,14 @@ impl StatefulWidget for Table<'_> {
 impl StatefulWidget for &Table<'_> {
     type State = TableState;
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        StatefulWidgetRef::render_ref(self, area, buf, state);
+
     }
 }
 
 impl StatefulWidgetRef for Table<'_> {
     type State = TableState;
 
-    fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+    fn render_stateful_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         buf.set_style(area, self.style);
         self.block.render_ref(area, buf);
         let table_area = self.block.inner_if_some(area);
@@ -842,7 +856,7 @@ mod tests {
     use std::vec;
 
     use super::*;
-    use crate::{layout::Constraint::*, style::Style, text::Line};
+    use crate::{layout::Constraint::*, style::Style, text::Line, widgets::Cell};
 
     #[test]
     fn new() {
@@ -1182,7 +1196,7 @@ mod tests {
                 .highlight_style(Style::new().red())
                 .highlight_symbol(">>");
             let mut state = TableState::new().with_selected(0);
-            StatefulWidget::render(table, Rect::new(0, 0, 15, 3), &mut buf, &mut state);
+            table.render_stateful(Rect::new(0, 0, 15, 3), &mut buf, &mut state);
             let expected = Buffer::with_lines([
                 ">>Cell1 Cell2  ".red(),
                 "  Cell3 Cell4  ".into(),
@@ -1407,7 +1421,7 @@ mod tests {
             let area = Rect::new(0, 0, columns, 3);
             let mut buf = Buffer::empty(area);
             let mut state = TableState::default().with_selected(selection);
-            StatefulWidget::render(table, area, &mut buf, &mut state);
+            table.render_stateful(area, &mut buf, &mut state);
             assert_eq!(buf, Buffer::with_lines(expected));
         }
 

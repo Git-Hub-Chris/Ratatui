@@ -13,17 +13,25 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-#![allow(clippy::enum_glob_use, clippy::wildcard_imports)]
-
 use std::{error::Error, io};
 
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
 use itertools::Itertools;
-use ratatui::{prelude::*, widgets::*};
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    crossterm::{
+        event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    },
+    layout::{Constraint, Layout, Margin, Rect},
+    style::{self, Color, Modifier, Style, Stylize},
+    terminal::{Frame, Terminal},
+    text::{Line, Text},
+    widgets::{
+        Block, BorderType, Cell, HighlightSpacing, Paragraph, Row, Scrollbar, ScrollbarOrientation,
+        ScrollbarState, Table, TableState,
+    },
+};
 use style::palette::tailwind;
 use unicode_width::UnicodeWidthStr;
 
@@ -70,45 +78,10 @@ struct Data {
     email: String,
 }
 
-impl Data {
-    const fn ref_array(&self) -> [&String; 3] {
-        [&self.name, &self.address, &self.email]
-    }
 
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn address(&self) -> &str {
-        &self.address
-    }
-
-    fn email(&self) -> &str {
-        &self.email
-    }
-}
-
-struct App {
-    state: TableState,
-    items: Vec<Data>,
-    longest_item_lens: (u16, u16, u16), // order is (name, address, email)
-    scroll_state: ScrollbarState,
-    colors: TableColors,
-    color_index: usize,
-}
-
-impl App {
-    fn new() -> Self {
-        let data_vec = generate_fake_names();
-        Self {
-            state: TableState::default().with_selected(0),
-            longest_item_lens: constraint_len_calculator(&data_vec),
-            scroll_state: ScrollbarState::new((data_vec.len() - 1) * ITEM_HEIGHT),
-            colors: TableColors::new(&PALETTES[0]),
-            color_index: 0,
-            items: data_vec,
         }
     }
+
     pub fn next(&mut self) {
         let i = match self.state.selected() {
             Some(i) => {
@@ -150,6 +123,37 @@ impl App {
 
     pub fn set_colors(&mut self) {
         self.colors = TableColors::new(&PALETTES[self.color_index]);
+    }
+
+    pub fn next_page(&mut self) {
+        let page_size = self.state.page_size.unwrap_or(1);
+        let i = match self.state.selected() {
+            Some(i) => {
+                if (i + page_size) > self.items.len() - 1 {
+                    i + page_size - self.items.len()
+                } else {
+                    i + page_size
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
+    }
+
+    pub fn previous_page(&mut self) {
+        let page_size = self.state.page_size.unwrap_or(1);
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i >= page_size {
+                    i - page_size
+                } else {
+                    let remainder = page_size - i;
+                    self.items.len() - remainder - i
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
     }
 }
 
@@ -212,13 +216,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
 
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
-                use KeyCode::*;
                 match key.code {
-                    Char('q') | Esc => return Ok(()),
-                    Char('j') | Down => app.next(),
-                    Char('k') | Up => app.previous(),
-                    Char('l') | Right => app.next_color(),
-                    Char('h') | Left => app.previous_color(),
+
                     _ => {}
                 }
             }
@@ -229,40 +228,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
 fn ui(f: &mut Frame, app: &mut App) {
     let rects = Layout::vertical([Constraint::Min(5), Constraint::Length(3)]).split(f.size());
 
-    app.set_colors();
-
-    render_table(f, app, rects[0]);
-
-    render_scrollbar(f, app, rects[0]);
-
-    render_footer(f, app, rects[1]);
-}
-
-fn render_table(f: &mut Frame, app: &mut App, area: Rect) {
-    let header_style = Style::default()
-        .fg(app.colors.header_fg)
-        .bg(app.colors.header_bg);
-    let selected_style = Style::default()
-        .add_modifier(Modifier::REVERSED)
-        .fg(app.colors.selected_style_fg);
-
-    let header = ["Name", "Address", "Email"]
-        .into_iter()
-        .map(Cell::from)
-        .collect::<Row>()
-        .style(header_style)
-        .height(1);
-    let rows = app.items.iter().enumerate().map(|(i, data)| {
-        let color = match i % 2 {
-            0 => app.colors.normal_row_color,
-            _ => app.colors.alt_row_color,
-        };
-        let item = data.ref_array();
-        item.into_iter()
-            .map(|content| Cell::from(Text::from(format!("\n{content}\n"))))
-            .collect::<Row>()
-            .style(Style::new().fg(app.colors.row_fg).bg(color))
-            .height(4)
     });
     let bar = " █ ";
     let t = Table::new(
@@ -318,7 +283,7 @@ fn render_scrollbar(f: &mut Frame, app: &mut App, area: Rect) {
             .orientation(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None),
-        area.inner(&Margin {
+        area.inner(Margin {
             vertical: 1,
             horizontal: 1,
         }),

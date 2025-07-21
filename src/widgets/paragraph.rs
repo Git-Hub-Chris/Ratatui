@@ -2,8 +2,12 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     prelude::*,
+    style::Styled,
     text::StyledGrapheme,
-    widgets::{reflow::*, Block},
+    widgets::{
+        reflow::{LineComposer, LineTruncator, WordWrapper, WrappedLine},
+        Block,
+    },
 };
 
 const fn get_line_offset(line_width: u16, text_area_width: u16, alignment: Alignment) -> u16 {
@@ -34,9 +38,8 @@ const fn get_line_offset(line_width: u16, text_area_width: u16, alignment: Align
 ///     .block(Block::bordered().title("Paragraph"))
 ///     .style(Style::new().white().on_black())
 ///     .alignment(Alignment::Center)
-///     .wrap(Wrap { trim: true });
+
 /// ```
-#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 pub struct Paragraph<'a> {
     /// A block to wrap the widget in
     block: Option<Block<'a>>,
@@ -66,7 +69,7 @@ pub struct Paragraph<'a> {
 /// );
 ///
 /// // With leading spaces trimmed (window width of 30 chars):
-/// Paragraph::new(bullet_points.clone()).wrap(Wrap { trim: true });
+
 /// // Some indented points:
 /// // - First thing goes here and is
 /// // long so that it wraps
@@ -74,21 +77,21 @@ pub struct Paragraph<'a> {
 /// // is long enough to wrap
 ///
 /// // But without trimming, indentation is preserved:
-/// Paragraph::new(bullet_points).wrap(Wrap { trim: false });
+
 /// // Some indented points:
 /// //     - First thing goes here
 /// // and is long so that it wraps
 /// //     - Here is another point
 /// // that is long enough to wrap
 /// ```
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+
 pub struct Wrap {
     /// Should leading whitespace be trimmed
     pub trim: bool,
+
 }
 
-type Horizontal = u16;
-type Vertical = u16;
+
 
 impl<'a> Paragraph<'a> {
     /// Creates a new [`Paragraph`] widget with the given text.
@@ -204,118 +207,7 @@ impl<'a> Paragraph<'a> {
         self
     }
 
-    /// Left-aligns the text in the given paragraph.
-    ///
-    /// Convenience shortcut for `Paragraph::alignment(Alignment::Left)`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// let paragraph = Paragraph::new("Hello World").left_aligned();
-    /// ```
-    #[must_use = "method moves the value of self and returns the modified value"]
-    pub const fn left_aligned(self) -> Self {
-        self.alignment(Alignment::Left)
-    }
 
-    /// Center-aligns the text in the given paragraph.
-    ///
-    /// Convenience shortcut for `Paragraph::alignment(Alignment::Center)`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// let paragraph = Paragraph::new("Hello World").centered();
-    /// ```
-    #[must_use = "method moves the value of self and returns the modified value"]
-    pub const fn centered(self) -> Self {
-        self.alignment(Alignment::Center)
-    }
-
-    /// Right-aligns the text in the given paragraph.
-    ///
-    /// Convenience shortcut for `Paragraph::alignment(Alignment::Right)`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// let paragraph = Paragraph::new("Hello World").right_aligned();
-    /// ```
-    #[must_use = "method moves the value of self and returns the modified value"]
-    pub const fn right_aligned(self) -> Self {
-        self.alignment(Alignment::Right)
-    }
-
-    /// Calculates the number of lines needed to fully render.
-    ///
-    /// Given a max line width, this method calculates the number of lines that a paragraph will
-    /// need in order to be fully rendered. For paragraphs that do not use wrapping, this count is
-    /// simply the number of lines present in the paragraph.
-    ///
-    /// Note: The design for text wrapping is not stable and might affect this API.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// let paragraph = Paragraph::new("Hello World")
-    ///     .wrap(Wrap { trim: false });
-    /// assert_eq!(paragraph.line_count(20), 1);
-    /// assert_eq!(paragraph.line_count(10), 2);
-    /// ```
-    #[stability::unstable(
-        feature = "rendered-line-info",
-        issue = "https://github.com/ratatui-org/ratatui/issues/293"
-    )]
-    pub fn line_count(&self, width: u16) -> usize {
-        if width < 1 {
-            return 0;
-        }
-
-        if let Some(Wrap { trim }) = self.wrap {
-            let styled = self.text.iter().map(|line| {
-                let graphemes = line
-                    .spans
-                    .iter()
-                    .flat_map(|span| span.styled_graphemes(self.style));
-                let alignment = line.alignment.unwrap_or(self.alignment);
-                (graphemes, alignment)
-            });
-            let mut line_composer = WordWrapper::new(styled, width, trim);
-            let mut count = 0;
-            while line_composer.next_line().is_some() {
-                count += 1;
-            }
-            count
-        } else {
-            self.text.height()
-        }
-    }
-
-    /// Calculates the shortest line width needed to avoid any word being wrapped or truncated.
-    ///
-    /// Note: The design for text wrapping is not stable and might affect this API.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// let paragraph = Paragraph::new("Hello World");
-    /// assert_eq!(paragraph.line_width(), 11);
-    ///
-    /// let paragraph = Paragraph::new("Hello World\nhi\nHello World!!!");
-    /// assert_eq!(paragraph.line_width(), 14);
-    /// ```
-    #[stability::unstable(
-        feature = "rendered-line-info",
-        issue = "https://github.com/ratatui-org/ratatui/issues/293"
-    )]
-    pub fn line_width(&self) -> usize {
-        self.text.iter().map(Line::width).max().unwrap_or_default()
-    }
 }
 
 impl Widget for Paragraph<'_> {
@@ -339,54 +231,29 @@ impl Paragraph<'_> {
             return;
         }
 
-        buf.set_style(text_area, self.style);
-        let styled = self.text.iter().map(|line| {
-            let graphemes = line.styled_graphemes(self.text.style);
-            let alignment = line.alignment.unwrap_or(self.alignment);
-            (graphemes, alignment)
-        });
 
-        if let Some(Wrap { trim }) = self.wrap {
-            let line_composer = WordWrapper::new(styled, text_area.width, trim);
-            self.render_text(line_composer, text_area, buf);
-        } else {
-            let mut line_composer = LineTruncator::new(styled, text_area.width);
-            line_composer.set_horizontal_offset(self.scroll.1);
-            self.render_text(line_composer, text_area, buf);
-        }
+                }
+                self.draw_lines(text_area, buf, line_composer, self.scroll);
+            }
+
+            }
+        };
     }
 }
 
-impl<'a> Paragraph<'a> {
-    fn render_text<C: LineComposer<'a>>(&self, mut composer: C, area: Rect, buf: &mut Buffer) {
-        let mut y = 0;
-        while let Some(WrappedLine {
-            line: current_line,
-            width: current_line_width,
-            alignment: current_line_alignment,
-        }) = composer.next_line()
-        {
-            if y >= self.scroll.0 {
-                let mut x = get_line_offset(current_line_width, area.width, current_line_alignment);
-                for StyledGrapheme { symbol, style } in current_line {
-                    let width = symbol.width();
-                    if width == 0 {
-                        continue;
-                    }
-                    // If the symbol is empty, the last char which rendered last time will
-                    // leave on the line. It's a quick fix.
-                    let symbol = if symbol.is_empty() { " " } else { symbol };
-                    buf[(area.left() + x, area.top() + y - self.scroll.0)]
-                        .set_symbol(symbol)
-                        .set_style(*style);
-                    x += width as u16;
-                }
-            }
-            y += 1;
-            if y >= area.height + self.scroll.0 {
-                break;
-            }
+struct WrappedLines<'a> {
+    lines: Vec<(Vec<StyledGrapheme<'a>>, u16)>,
+    index: usize,
+}
+
+impl<'a> LineComposer<'a> for WrappedLines<'a> {
+    fn next_line(&mut self) -> Option<(&[StyledGrapheme<'a>], u16)> {
+        if self.index >= self.lines.len() {
+            return None;
         }
+        let (line, width) = &self.lines[self.index];
+        self.index += 1;
+        Some((&line, *width))
     }
 }
 
@@ -429,7 +296,7 @@ mod test {
 
     #[test]
     fn zero_width_char_at_end_of_line() {
-        let line = "foo\0";
+        let line = "foo\u{200B}";
         for paragraph in [
             Paragraph::new(line),
             Paragraph::new(line).wrap(Wrap { trim: false }),

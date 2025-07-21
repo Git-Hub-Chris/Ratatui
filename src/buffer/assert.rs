@@ -7,6 +7,9 @@
 #[macro_export]
 macro_rules! assert_buffer_eq {
     ($actual_expr:expr, $expected_expr:expr) => {
+        assert_buffer_eq!($actual_expr, $expected_expr, "buffers not equal")
+    };
+    ($actual_expr:expr, $expected_expr:expr, $message:expr) => {
         match (&$actual_expr, &$expected_expr) {
             (actual, expected) => {
                 assert!(
@@ -29,10 +32,7 @@ macro_rules! assert_buffer_eq {
                 );
                 // shouldn't get here, but this guards against future behavior
                 // that changes equality but not area or content
-                assert_eq!(
-                    actual, expected,
-                    "buffers are not equal in an unexpected way. Please open an issue about this."
-                );
+
             }
         }
     };

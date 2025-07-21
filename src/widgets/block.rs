@@ -8,7 +8,7 @@
 use itertools::Itertools;
 use strum::{Display, EnumString};
 
-use crate::{prelude::*, symbols::border, widgets::Borders};
+use crate::{prelude::*, style::Styled, symbols::border, widgets::Borders};
 
 mod padding;
 pub mod title;
@@ -53,7 +53,10 @@ pub use title::{Position, Title};
 /// ```
 /// use ratatui::{
 ///     prelude::*,
-///     widgets::{block::*, *},
+///     widgets::{
+///         block::{Position, Title},
+///         Block,
+///     },
 /// };
 ///
 /// Block::new()
@@ -168,7 +171,7 @@ impl<'a> Block<'a> {
             border_style: Style::new(),
             border_set: BorderType::Plain.to_border_set(),
             style: Style::new(),
-            padding: Padding::zero(),
+            padding: Padding::ZERO,
         }
     }
 
@@ -354,7 +357,10 @@ impl<'a> Block<'a> {
     /// ```
     /// use ratatui::{
     ///     prelude::*,
-    ///     widgets::{block::*, *},
+    ///     widgets::{
+    ///         block::{Position, Title},
+    ///         Block,
+    ///     },
     /// };
     ///
     /// Block::new()
@@ -469,6 +475,38 @@ impl<'a> Block<'a> {
         self
     }
 
+    /// Defines the padding inside a `Block`.
+    ///
+    /// See [`Padding`] for more information.
+    ///
+    /// # Examples
+    ///
+    /// This renders a `Block` with no padding (the default).
+    /// ```
+    /// # use ratatui::{prelude::*, widgets::*};
+    /// Block::bordered().padding(Padding::ZERO);
+    /// // Renders
+    /// // ┌───────┐
+    /// // │content│
+    /// // └───────┘
+    /// ```
+    ///
+    /// This example shows a `Block` with padding left and right ([`Padding::horizontal`]).
+    /// Notice the two spaces before and after the content.
+    /// ```
+    /// # use ratatui::{prelude::*, widgets::*};
+    /// Block::bordered().padding(Padding::horizontal(2));
+    /// // Renders
+    /// // ┌───────────┐
+    /// // │  content  │
+    /// // └───────────┘
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn padding(mut self, padding: Padding) -> Self {
+        self.padding = padding;
+        self
+    }
+
     /// Compute the inner area of a block based on its border visibility rules.
     ///
     /// # Examples
@@ -528,38 +566,6 @@ impl<'a> Block<'a> {
         self.titles
             .iter()
             .any(|title| title.position.unwrap_or(self.titles_position) == position)
-    }
-
-    /// Defines the padding inside a `Block`.
-    ///
-    /// See [`Padding`] for more information.
-    ///
-    /// # Examples
-    ///
-    /// This renders a `Block` with no padding (the default).
-    /// ```
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// Block::bordered().padding(Padding::zero());
-    /// // Renders
-    /// // ┌───────┐
-    /// // │content│
-    /// // └───────┘
-    /// ```
-    ///
-    /// This example shows a `Block` with padding left and right ([`Padding::horizontal`]).
-    /// Notice the two spaces before and after the content.
-    /// ```
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// Block::bordered().padding(Padding::horizontal(2));
-    /// // Renders
-    /// // ┌───────────┐
-    /// // │  content  │
-    /// // └───────────┘
-    /// ```
-    #[must_use = "method moves the value of self and returns the modified value"]
-    pub const fn padding(mut self, padding: Padding) -> Self {
-        self.padding = padding;
-        self
     }
 }
 
@@ -997,7 +1003,7 @@ mod tests {
                 border_style: Style::new(),
                 border_set: BorderType::Plain.to_border_set(),
                 style: Style::new(),
-                padding: Padding::zero(),
+                padding: Padding::ZERO,
             }
         );
     }
