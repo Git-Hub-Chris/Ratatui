@@ -854,7 +854,7 @@ impl Widget for List<'_> {
 impl WidgetRef for List<'_> {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let mut state = ListState::default();
-        StatefulWidgetRef::render_ref(self, area, buf, &mut state);
+        self.render_stateful_ref(area, buf, &mut state);
     }
 }
 
@@ -862,14 +862,7 @@ impl StatefulWidget for List<'_> {
     type State = ListState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        self.render_stateful(area, buf, state);
-    }
 
-    fn render_stateful(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
-    where
-        Self: Sized,
-    {
-        StatefulWidgetRef::render_ref(&self, area, buf, state);
     }
 }
 
@@ -878,21 +871,14 @@ impl StatefulWidget for &List<'_> {
     type State = ListState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        self.render_stateful(area, buf, state);
-    }
 
-    fn render_stateful(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
-    where
-        Self: Sized,
-    {
-        StatefulWidgetRef::render_ref(self, area, buf, state);
     }
 }
 
 impl StatefulWidgetRef for List<'_> {
     type State = ListState;
 
-    fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+    fn render_stateful_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         buf.set_style(area, self.style);
         self.block.render_ref(area, buf);
         let list_area = self.block.inner_if_some(area);
