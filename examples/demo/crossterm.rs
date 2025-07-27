@@ -1,68 +1,38 @@
-use crate::{app::App, ui};
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use std::time::{Duration, Instant};
+
+use color_eyre::Result;
 use ratatui::{
     backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
     Terminal,
 };
-use std::{
-    error::Error,
-    io,
-    time::{Duration, Instant},
-};
 
-pub fn run(tick_rate: Duration, enhanced_graphics: bool) -> Result<(), Box<dyn Error>> {
-    // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+use crate::{app::App, ui};
 
-    // create app and run it
+pub fn run(tick_rate: Duration, enhanced_graphics: bool) -> Result<()> {
+    let terminal = CrosstermBackend::stdout_with_defaults()?
+        .with_mouse_capture()?
+        .to_terminal()?;
+
     let app = App::new("Crossterm Demo", enhanced_graphics);
-    let res = run_app(&mut terminal, app, tick_rate);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{:?}", err)
-    }
-
-    Ok(())
+    run_app(app, terminal, tick_rate)
 }
 
-fn run_app<B: Backend>(
-    terminal: &mut Terminal<B>,
-    mut app: App,
-    tick_rate: Duration,
-) -> io::Result<()> {
+fn run_app(mut app: App, mut terminal: Terminal<impl Backend>, tick_rate: Duration) -> Result<()> {
     let mut last_tick = Instant::now();
-    loop {
+    while !app.should_quit {
         terminal.draw(|f| ui::draw(f, &mut app))?;
 
-        let timeout = tick_rate
-            .checked_sub(last_tick.elapsed())
-            .unwrap_or_else(|| Duration::from_secs(0));
+        let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if crossterm::event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
+                        KeyCode::Left | KeyCode::Char('h') => app.on_left(),
+                        KeyCode::Up | KeyCode::Char('k') => app.on_up(),
+                        KeyCode::Right | KeyCode::Char('l') => app.on_right(),
+                        KeyCode::Down | KeyCode::Char('j') => app.on_down(),
                         KeyCode::Char(c) => app.on_key(c),
-                        KeyCode::Left => app.on_left(),
-                        KeyCode::Up => app.on_up(),
-                        KeyCode::Right => app.on_right(),
-                        KeyCode::Down => app.on_down(),
                         _ => {}
                     }
                 }
@@ -72,8 +42,6 @@ fn run_app<B: Backend>(
             app.on_tick();
             last_tick = Instant::now();
         }
-        if app.should_quit {
-            return Ok(());
-        }
     }
+    Ok(())
 }

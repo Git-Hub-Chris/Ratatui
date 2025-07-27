@@ -1,20 +1,36 @@
-use rand::distributions::{Distribution, Uniform};
-use ratatui::{
-    backend::{Backend, CrosstermBackend},
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    symbols,
-    text::{Span, Spans},
-    widgets::{Block, Gauge, LineGauge, List, ListItem, Paragraph, Widget},
-    Frame, Terminal, TerminalOptions, Viewport,
-};
+//! # [Ratatui] Inline example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
+
 use std::{
     collections::{BTreeMap, VecDeque},
-    error::Error,
-    io,
     sync::mpsc,
     thread,
     time::{Duration, Instant},
+};
+
+use color_eyre::Result;
+use rand::distributions::{Distribution, Uniform};
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
+    symbols,
+    terminal::{Frame, Terminal, Viewport},
+    text::{Line, Span},
+    widgets::{block, Block, Gauge, LineGauge, List, ListItem, Paragraph, Widget},
+    TerminalOptions,
 };
 
 const NUM_DOWNLOADS: usize = 10;
@@ -70,17 +86,11 @@ struct Worker {
     tx: mpsc::Sender<Download>,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    crossterm::terminal::enable_raw_mode()?;
-    let stdout = io::stdout();
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::with_options(
-        backend,
-        TerminalOptions {
-            viewport: Viewport::Inline(8),
-        },
-    )?;
-
+fn main() -> Result<()> {
+    let options = TerminalOptions {
+        viewport: Viewport::Inline(8),
+    };
+    let terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal_with_options(options)?;
     let (tx, rx) = mpsc::channel();
     input_handling(tx.clone());
     let workers = workers(tx);
@@ -91,11 +101,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         w.tx.send(d).unwrap();
     }
 
-    run_app(&mut terminal, workers, downloads, rx)?;
-
-    crossterm::terminal::disable_raw_mode()?;
-    terminal.clear()?;
-
+    run_app(terminal, workers, downloads, rx)?;
     Ok(())
 }
 
@@ -105,9 +111,7 @@ fn input_handling(tx: mpsc::Sender<Event>) {
         let mut last_tick = Instant::now();
         loop {
             // poll for tick rate duration, if no events, sent tick event.
-            let timeout = tick_rate
-                .checked_sub(last_tick.elapsed())
-                .unwrap_or_else(|| Duration::from_secs(0));
+            let timeout = tick_rate.saturating_sub(last_tick.elapsed());
             if crossterm::event::poll(timeout).unwrap() {
                 match crossterm::event::read().unwrap() {
                     crossterm::event::Event::Key(key) => tx.send(Event::Input(key)).unwrap(),
@@ -123,6 +127,7 @@ fn input_handling(tx: mpsc::Sender<Event>) {
     });
 }
 
+#[allow(clippy::cast_precision_loss, clippy::needless_pass_by_value)]
 fn workers(tx: mpsc::Sender<Event>) -> Vec<Worker> {
     (0..4)
         .map(|id| {
@@ -162,12 +167,13 @@ fn downloads() -> Downloads {
     }
 }
 
-fn run_app<B: Backend>(
-    terminal: &mut Terminal<B>,
+#[allow(clippy::needless_pass_by_value)]
+fn run_app(
+    mut terminal: Terminal<impl Backend>,
     workers: Vec<Worker>,
     mut downloads: Downloads,
     rx: mpsc::Receiver<Event>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<()> {
     let mut redraw = true;
     loop {
         if redraw {
@@ -188,15 +194,15 @@ fn run_app<B: Backend>(
             Event::DownloadUpdate(worker_id, _download_id, progress) => {
                 let download = downloads.in_progress.get_mut(&worker_id).unwrap();
                 download.progress = progress;
-                redraw = false
+                redraw = false;
             }
             Event::DownloadDone(worker_id, download_id) => {
                 let download = downloads.in_progress.remove(&worker_id).unwrap();
                 terminal.insert_before(1, |buf| {
-                    Paragraph::new(Spans::from(vec![
+                    Paragraph::new(Line::from(vec![
                         Span::from("Finished "),
                         Span::styled(
-                            format!("download {}", download_id),
+                            format!("download {download_id}"),
                             Style::default().add_modifier(Modifier::BOLD),
                         ),
                         Span::from(format!(
@@ -223,38 +229,32 @@ fn run_app<B: Backend>(
     Ok(())
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, downloads: &Downloads) {
-    let size = f.size();
+fn ui(f: &mut Frame, downloads: &Downloads) {
+    let area = f.size();
 
-    let block = Block::default()
-        .title("Progress")
-        .title_alignment(Alignment::Center);
-    f.render_widget(block, size);
+    let block = Block::new().title(block::Title::from("Progress").alignment(Alignment::Center));
+    f.render_widget(block, area);
 
-    let chunks = Layout::default()
-        .constraints(vec![Constraint::Length(2), Constraint::Length(4)])
-        .margin(1)
-        .split(size);
+    let vertical = Layout::vertical([Constraint::Length(2), Constraint::Length(4)]).margin(1);
+    let horizontal = Layout::horizontal([Constraint::Percentage(20), Constraint::Percentage(80)]);
+    let [progress_area, main] = vertical.areas(area);
+    let [list_area, gauge_area] = horizontal.areas(main);
 
     // total progress
     let done = NUM_DOWNLOADS - downloads.pending.len() - downloads.in_progress.len();
+    #[allow(clippy::cast_precision_loss)]
     let progress = LineGauge::default()
-        .gauge_style(Style::default().fg(Color::Blue))
-        .label(format!("{}/{}", done, NUM_DOWNLOADS))
+        .filled_style(Style::default().fg(Color::Blue))
+        .label(format!("{done}/{NUM_DOWNLOADS}"))
         .ratio(done as f64 / NUM_DOWNLOADS as f64);
-    f.render_widget(progress, chunks[0]);
-
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(vec![Constraint::Percentage(20), Constraint::Percentage(80)])
-        .split(chunks[1]);
+    f.render_widget(progress, progress_area);
 
     // in progress downloads
     let items: Vec<ListItem> = downloads
         .in_progress
         .values()
         .map(|download| {
-            ListItem::new(Spans::from(vec![
+            ListItem::new(Line::from(vec![
                 Span::raw(symbols::DOT),
                 Span::styled(
                     format!(" download {:>2}", download.id),
@@ -270,21 +270,22 @@ fn ui<B: Backend>(f: &mut Frame<B>, downloads: &Downloads) {
         })
         .collect();
     let list = List::new(items);
-    f.render_widget(list, chunks[0]);
+    f.render_widget(list, list_area);
 
+    #[allow(clippy::cast_possible_truncation)]
     for (i, (_, download)) in downloads.in_progress.iter().enumerate() {
         let gauge = Gauge::default()
             .gauge_style(Style::default().fg(Color::Yellow))
             .ratio(download.progress / 100.0);
-        if chunks[1].top().saturating_add(i as u16) > size.bottom() {
+        if gauge_area.top().saturating_add(i as u16) > area.bottom() {
             continue;
         }
         f.render_widget(
             gauge,
             Rect {
-                x: chunks[1].left(),
-                y: chunks[1].top().saturating_add(i as u16),
-                width: chunks[1].width,
+                x: gauge_area.left(),
+                y: gauge_area.top().saturating_add(i as u16),
+                width: gauge_area.width,
                 height: 1,
             },
         );
