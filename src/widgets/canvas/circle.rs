@@ -3,12 +3,16 @@ use crate::{
     widgets::canvas::{Painter, Shape},
 };
 
-/// Shape to draw a circle with a given center and radius and with the given color
-#[derive(Debug, Clone)]
+/// A circle with a given center and radius and with a given color
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Circle {
+    /// `x` coordinate of the circle's center
     pub x: f64,
+    /// `y` coordinate of the circle's center
     pub y: f64,
+    /// Radius of the circle
     pub radius: f64,
+    /// Color of the circle
     pub color: Color,
 }
 
@@ -27,12 +31,16 @@ impl Shape for Circle {
 
 #[cfg(test)]
 mod tests {
-    use crate::buffer::Buffer;
-    use crate::layout::Rect;
-    use crate::style::Color;
-    use crate::symbols::Marker;
-    use crate::widgets::canvas::{Canvas, Circle};
-    use crate::widgets::Widget;
+    use crate::{
+        buffer::Buffer,
+        layout::Rect,
+        style::Color,
+        symbols::Marker,
+        widgets::{
+            canvas::{Canvas, Circle},
+            Widget,
+        },
+    };
 
     #[test]
     fn test_it_draws_a_circle() {
@@ -50,7 +58,7 @@ mod tests {
             .x_bounds([-10.0, 10.0])
             .y_bounds([-10.0, 10.0]);
         canvas.render(buffer.area, &mut buffer);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "     ⢀⣠⢤⣀ ",
             "    ⢰⠋  ⠈⣇",
             "    ⠘⣆⡀ ⣠⠇",

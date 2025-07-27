@@ -1,76 +1,149 @@
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+name: Continuous Integration
 
-name: CI
+# ensure that the workflow is only triggered once per PR,  subsequent pushes to the PR will cancel
+# and restart the workflow. See https://docs.github.com/en/actions/using-jobs/using-concurrency
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 env:
-  CI_CARGO_MAKE_VERSION: 0.35.16
+  # don't install husky hooks during CI as they are only needed for for pre-push
+  CARGO_HUSKY_DONT_INSTALL_HOOKS: true
 
+# lint, clippy and coveraget jobs are intentionally early in the workflow to catch simple
+# formatting, typos, and missing tests as early as possible. This allows us to fix these and
+# resubmit the PR without having to wait for the comprehensive matrix of tests to complete.
 jobs:
-  test:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: ["1.65.0", "stable"]
-        include:
-          - os: ubuntu-latest
-            triple: x86_64-unknown-linux-musl
-          - os: windows-latest
-            triple: x86_64-pc-windows-msvc
-          - os: macos-latest
-            triple: x86_64-apple-darwin
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: hecrj/setup-rust-action@50a120e4d34903c2c1383dec0e9b1d349a9cc2b1
-        with:
-          rust-version: ${{ matrix.rust }}
-          components: rustfmt,clippy
-      - uses: actions/checkout@v3
-      - name: Install cargo-make on Linux or macOS
-        if: ${{ runner.os != 'windows' }}
-        shell: bash
-        run: |
-          curl -LO 'https://github.com/sagiegurari/cargo-make/releases/download/${{ env.CI_CARGO_MAKE_VERSION }}/cargo-make-v${{ env.CI_CARGO_MAKE_VERSION }}-${{ matrix.triple }}.zip'
-          unzip 'cargo-make-v${{ env.CI_CARGO_MAKE_VERSION }}-${{ matrix.triple }}.zip'
-          cp 'cargo-make-v${{ env.CI_CARGO_MAKE_VERSION }}-${{ matrix.triple }}/cargo-make' ~/.cargo/bin/
-          cargo make --version
-      - name: Install cargo-make on Windows
-        if: ${{ runner.os == 'windows' }}
-        shell: bash
-        run: |
-          # `cargo-make-v0.35.16-{target}/` directory is created on Linux and macOS, but it is not creatd on Windows.
-          mkdir cargo-make-temporary
-          cd cargo-make-temporary
-          curl -LO 'https://github.com/sagiegurari/cargo-make/releases/download/${{ env.CI_CARGO_MAKE_VERSION }}/cargo-make-v${{ env.CI_CARGO_MAKE_VERSION }}-${{ matrix.triple }}.zip'
-          unzip 'cargo-make-v${{ env.CI_CARGO_MAKE_VERSION }}-${{ matrix.triple }}.zip'
-          cp cargo-make.exe ~/.cargo/bin/
-          cd ..
-          cargo make --version
-      - name: "Format / Build / Test"
-        run: cargo make ci
-        env:
-          RUST_BACKTRACE: full
-
   lint:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        if: github.event_name != 'pull_request'
-        uses: actions/checkout@v3
-      - name: Checkout
-        if: github.event_name == 'pull_request'
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: "Check conventional commits"
-        uses: crate-ci/committed@master
-        with:
-          args: "-vv"
-          commits: "HEAD"
-      - name: "Check typos"
+          components: rustfmt
+      - name: Install cargo-make
+        uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo make lint-format
+      - name: Check documentation
+        run: cargo make lint-docs
+      - name: Check typos
         uses: crate-ci/typos@master
+      - name: Lint dependencies
+        uses: EmbarkStudios/cargo-deny-action@v1
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Install cargo-make
+        uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Run cargo make clippy-all
+        run: cargo make clippy
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools
+      - name: Install cargo-llvm-cov and cargo-make
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov,cargo-make
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Generate coverage
+        run: cargo make coverage
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        toolchain: ["1.74.0", "stable"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust {{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - name: Install cargo-make
+        uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Run cargo make check
+        run: cargo make check
+        env:
+          RUST_BACKTRACE: full
+
+  test-doc:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-make
+        uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Test docs
+        run: cargo make test-doc
+        env:
+          RUST_BACKTRACE: full
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        toolchain: ["1.74.0", "stable"]
+        backend: [crossterm, termion, termwiz]
+        exclude:
+          # termion is not supported on windows
+          - os: windows-latest
+            backend: termion
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust ${{ matrix.toolchain }}}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - name: Install cargo-make
+        uses: taiki-e/install-action@cargo-make
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+      - name: Test ${{ matrix.backend }}
+        run: cargo make test-backend ${{ matrix.backend }}
+        env:
+          RUST_BACKTRACE: full
