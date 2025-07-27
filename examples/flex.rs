@@ -13,22 +13,24 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-#![allow(clippy::enum_glob_use, clippy::wildcard_imports)]
-
-use std::io::{self, stdout};
-
-use color_eyre::{config::HookBuilder, Result};
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
-};
+use color_eyre::Result;
 use ratatui::{
-    layout::{Constraint::*, Flex},
-    prelude::*,
-    style::palette::tailwind,
-    symbols::line,
-    widgets::{block::Title, *},
+    backend::{Backend, CrosstermBackend},
+    buffer::Buffer,
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    layout::{
+        Alignment,
+        Constraint::{self, Fill, Length, Max, Min, Percentage, Ratio},
+        Flex, Layout, Rect,
+    },
+    style::{palette::tailwind, Color, Modifier, Style, Stylize},
+    symbols::{self, line},
+    terminal::Terminal,
+    text::{Line, Text},
+    widgets::{
+        block::Title, Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, Tabs, Widget,
+    },
 };
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 
@@ -149,16 +151,12 @@ enum SelectedTab {
 fn main() -> Result<()> {
     // assuming the user changes spacing about a 100 times or so
     Layout::init_cache(EXAMPLE_DATA.len() * SelectedTab::iter().len() * 100);
-    init_error_hooks()?;
-    let terminal = init_terminal()?;
-    App::default().run(terminal)?;
-
-    restore_terminal()?;
-    Ok(())
+    let terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
+    App::default().run(terminal)
 }
 
 impl App {
-    fn run(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
+    fn run(mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         self.draw(&mut terminal)?;
         while self.is_running() {
             self.handle_events()?;
@@ -171,24 +169,23 @@ impl App {
         self.state == AppState::Running
     }
 
-    fn draw(self, terminal: &mut Terminal<impl Backend>) -> io::Result<()> {
+    fn draw(self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
         terminal.draw(|frame| frame.render_widget(self, frame.size()))?;
         Ok(())
     }
 
     fn handle_events(&mut self) -> Result<()> {
-        use KeyCode::*;
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                Char('q') | Esc => self.quit(),
-                Char('l') | Right => self.next(),
-                Char('h') | Left => self.previous(),
-                Char('j') | Down => self.down(),
-                Char('k') | Up => self.up(),
-                Char('g') | Home => self.top(),
-                Char('G') | End => self.bottom(),
-                Char('+') => self.increment_spacing(),
-                Char('-') => self.decrement_spacing(),
+                KeyCode::Char('q') | KeyCode::Esc => self.quit(),
+                KeyCode::Char('l') | KeyCode::Right => self.next(),
+                KeyCode::Char('h') | KeyCode::Left => self.previous(),
+                KeyCode::Char('j') | KeyCode::Down => self.down(),
+                KeyCode::Char('k') | KeyCode::Up => self.up(),
+                KeyCode::Char('g') | KeyCode::Home => self.top(),
+                KeyCode::Char('G') | KeyCode::End => self.bottom(),
+                KeyCode::Char('+') => self.increment_spacing(),
+                KeyCode::Char('-') => self.decrement_spacing(),
                 _ => (),
             },
             _ => {}
@@ -324,7 +321,7 @@ impl App {
 
         let mut spacing = self.spacing;
         self.selected_tab
-            .render(content_area, &mut demo_buf, &mut spacing);
+            .render_stateful(content_area, &mut demo_buf, &mut spacing);
 
         let visible_content = demo_buf
             .content
@@ -334,14 +331,15 @@ impl App {
         for (i, cell) in visible_content.enumerate() {
             let x = i as u16 % area.width;
             let y = i as u16 / area.width;
-            *buf.get_mut(area.x + x, area.y + y) = cell;
+            buf[(area.x + x, area.y + y)] = cell;
         }
 
         if scrollbar_needed {
             let area = area.intersection(buf.area);
             let mut state = ScrollbarState::new(max_scroll_offset() as usize)
                 .position(self.scroll_offset as usize);
-            Scrollbar::new(ScrollbarOrientation::VerticalRight).render(area, buf, &mut state);
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .render_stateful(area, buf, &mut state);
         }
         scrollbar_needed
     }
@@ -364,7 +362,7 @@ impl SelectedTab {
 
     /// Convert a `SelectedTab` into a `Line` to display it by the `Tabs` widget.
     fn to_tab_title(value: Self) -> Line<'static> {
-        use tailwind::*;
+        use tailwind::{INDIGO, ORANGE, SKY};
         let text = value.to_string();
         let color = match value {
             Self::Legacy => ORANGE.c400,
@@ -380,8 +378,15 @@ impl SelectedTab {
 
 impl StatefulWidget for SelectedTab {
     type State = u16;
-    fn render(self, area: Rect, buf: &mut Buffer, spacing: &mut Self::State) {
-        let spacing = *spacing;
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        self.render_stateful(area, buf, state);
+    }
+
+    fn render_stateful(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
+    where
+        Self: Sized,
+    {
+        let spacing = *state;
         match self {
             Self::Legacy => Self::render_examples(area, buf, Flex::Legacy, spacing),
             Self::Start => Self::render_examples(area, buf, Flex::Start, spacing),
@@ -509,7 +514,7 @@ impl Example {
 }
 
 const fn color_for_constraint(constraint: Constraint) -> Color {
-    use tailwind::*;
+    use tailwind::{BLUE, SLATE};
     match constraint {
         Constraint::Min(_) => BLUE.c900,
         Constraint::Max(_) => BLUE.c800,
@@ -518,35 +523,6 @@ const fn color_for_constraint(constraint: Constraint) -> Color {
         Constraint::Ratio(_, _) => SLATE.c900,
         Constraint::Fill(_) => SLATE.c950,
     }
-}
-
-fn init_error_hooks() -> Result<()> {
-    let (panic, error) = HookBuilder::default().into_hooks();
-    let panic = panic.into_panic_hook();
-    let error = error.into_eyre_hook();
-    color_eyre::eyre::set_hook(Box::new(move |e| {
-        let _ = restore_terminal();
-        error(e)
-    }))?;
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal();
-        panic(info);
-    }));
-    Ok(())
-}
-
-fn init_terminal() -> Result<Terminal<impl Backend>> {
-    enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout());
-    let terminal = Terminal::new(backend)?;
-    Ok(terminal)
-}
-
-fn restore_terminal() -> Result<()> {
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
-    Ok(())
 }
 
 #[allow(clippy::cast_possible_truncation)]

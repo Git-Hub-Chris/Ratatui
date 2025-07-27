@@ -1,7 +1,14 @@
 use itertools::Itertools;
 use ratatui::{
-    prelude::*,
-    widgets::{canvas::*, *},
+    buffer::Buffer,
+    layout::{Alignment, Constraint, Layout, Margin, Rect},
+    style::{Styled, Stylize},
+    symbols::Marker,
+    widgets::{
+        canvas::{self, Canvas, Map, MapResolution, Points},
+        Block, BorderType, Clear, Padding, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        Sparkline, StatefulWidget, Table, TableState, Widget,
+    },
 };
 
 use crate::{RgbSwatch, THEME};
@@ -26,7 +33,7 @@ impl TracerouteTab {
 impl Widget for TracerouteTab {
     fn render(self, area: Rect, buf: &mut Buffer) {
         RgbSwatch.render(area, buf);
-        let area = area.inner(&Margin {
+        let area = area.inner(Margin {
             vertical: 1,
             horizontal: 2,
         });
@@ -49,19 +56,16 @@ fn render_hops(selected_row: usize, area: Rect, buf: &mut Buffer) {
         .iter()
         .map(|hop| Row::new(vec![hop.host, hop.address]))
         .collect_vec();
-    let block = Block::default()
-        .title("Traceroute bad.horse".bold().white())
+    let block = Block::new()
+        .padding(Padding::new(1, 1, 1, 1))
         .title_alignment(Alignment::Center)
-        .padding(Padding::new(1, 1, 1, 1));
-    StatefulWidget::render(
-        Table::new(rows, [Constraint::Max(100), Constraint::Length(15)])
-            .header(Row::new(vec!["Host", "Address"]).set_style(THEME.traceroute.header))
-            .highlight_style(THEME.traceroute.selected)
-            .block(block),
-        area,
-        buf,
-        &mut state,
-    );
+        .title("Traceroute bad.horse".bold().white());
+
+    Table::new(rows, [Constraint::Max(100), Constraint::Length(15)])
+        .header(Row::new(vec!["Host", "Address"]).set_style(THEME.traceroute.header))
+        .highlight_style(THEME.traceroute.selected)
+        .block(block)
+        .render_stateful(area, buf, &mut state);
     let mut scrollbar_state = ScrollbarState::default()
         .content_length(HOPS.len())
         .position(selected_row);
@@ -77,7 +81,7 @@ fn render_hops(selected_row: usize, area: Rect, buf: &mut Buffer) {
         .end_symbol(None)
         .track_symbol(None)
         .thumb_symbol("▌")
-        .render(area, buf, &mut scrollbar_state);
+        .render_stateful(area, buf, &mut scrollbar_state);
 }
 
 pub fn render_ping(progress: usize, area: Rect, buf: &mut Buffer) {
@@ -104,7 +108,7 @@ fn render_map(selected_row: usize, area: Rect, buf: &mut Buffer) {
     let theme = THEME.traceroute.map;
     let path: Option<(&Hop, &Hop)> = HOPS.iter().tuple_windows().nth(selected_row);
     let map = Map {
-        resolution: canvas::MapResolution::High,
+        resolution: MapResolution::High,
         color: theme.color,
     };
     Canvas::default()

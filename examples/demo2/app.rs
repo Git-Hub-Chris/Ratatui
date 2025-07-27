@@ -1,12 +1,25 @@
 use std::time::Duration;
 
 use color_eyre::{eyre::Context, Result};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event;
 use itertools::Itertools;
-use ratatui::{prelude::*, widgets::*};
+use ratatui::{
+    backend::Backend,
+    buffer::Buffer,
+    crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind},
+    layout::{Constraint, Layout, Rect},
+    style::Color,
+    terminal::Terminal,
+    text::{Line, Span},
+    widgets::{Block, Tabs, Widget},
+};
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 
-use crate::{destroy, tabs::*, term, THEME};
+use crate::{
+    destroy,
+    tabs::{AboutTab, EmailTab, RecipeTab, TracerouteTab, WeatherTab},
+    THEME,
+};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct App {
@@ -37,19 +50,11 @@ enum Tab {
     Weather,
 }
 
-pub fn run(terminal: &mut Terminal<impl Backend>) -> Result<()> {
-    App::new().run(terminal)
-}
-
 impl App {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Run the app until the user quits.
-    pub fn run(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
+    pub fn run(mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         while self.is_running() {
-            self.draw(terminal)?;
+            self.draw(&mut terminal)?;
             self.handle_events()?;
         }
         Ok(())
@@ -78,22 +83,29 @@ impl App {
     /// 1/50th of a second. This was chosen to try to match the default frame rate of a GIF in VHS.
     fn handle_events(&mut self) -> Result<()> {
         let timeout = Duration::from_secs_f64(1.0 / 50.0);
-        match term::next_event(timeout)? {
+        match Self::next_event(timeout)? {
             Some(Event::Key(key)) if key.kind == KeyEventKind::Press => self.handle_key_press(key),
             _ => {}
         }
         Ok(())
     }
 
+    pub fn next_event(timeout: Duration) -> Result<Option<Event>> {
+        if !event::poll(timeout)? {
+            return Ok(None);
+        }
+        let event = event::read()?;
+        Ok(Some(event))
+    }
+
     fn handle_key_press(&mut self, key: KeyEvent) {
-        use KeyCode::*;
         match key.code {
-            Char('q') | Esc => self.mode = Mode::Quit,
-            Char('h') | Left => self.prev_tab(),
-            Char('l') | Right => self.next_tab(),
-            Char('k') | Up => self.prev(),
-            Char('j') | Down => self.next(),
-            Char('d') | Delete => self.destroy(),
+            KeyCode::Char('q') | KeyCode::Esc => self.mode = Mode::Quit,
+            KeyCode::Char('h') | KeyCode::Left => self.prev_tab(),
+            KeyCode::Char('l') | KeyCode::Right => self.next_tab(),
+            KeyCode::Char('k') | KeyCode::Up => self.prev(),
+            KeyCode::Char('j') | KeyCode::Down => self.next(),
+            KeyCode::Char('d') | KeyCode::Delete => self.destroy(),
             _ => {}
         };
     }

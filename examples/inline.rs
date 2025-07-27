@@ -13,19 +13,25 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-#![allow(clippy::wildcard_imports)]
-
 use std::{
     collections::{BTreeMap, VecDeque},
-    error::Error,
-    io,
     sync::mpsc,
     thread,
     time::{Duration, Instant},
 };
 
+use color_eyre::Result;
 use rand::distributions::{Distribution, Uniform};
-use ratatui::{prelude::*, widgets::*};
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
+    symbols,
+    terminal::{Frame, Terminal, Viewport},
+    text::{Line, Span},
+    widgets::{block, Block, Gauge, LineGauge, List, ListItem, Paragraph, Widget},
+    TerminalOptions,
+};
 
 const NUM_DOWNLOADS: usize = 10;
 
@@ -80,17 +86,11 @@ struct Worker {
     tx: mpsc::Sender<Download>,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    crossterm::terminal::enable_raw_mode()?;
-    let stdout = io::stdout();
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::with_options(
-        backend,
-        TerminalOptions {
-            viewport: Viewport::Inline(8),
-        },
-    )?;
-
+fn main() -> Result<()> {
+    let options = TerminalOptions {
+        viewport: Viewport::Inline(8),
+    };
+    let terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal_with_options(options)?;
     let (tx, rx) = mpsc::channel();
     input_handling(tx.clone());
     let workers = workers(tx);
@@ -101,11 +101,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         w.tx.send(d).unwrap();
     }
 
-    run_app(&mut terminal, workers, downloads, rx)?;
-
-    crossterm::terminal::disable_raw_mode()?;
-    terminal.clear()?;
-
+    run_app(terminal, workers, downloads, rx)?;
     Ok(())
 }
 
@@ -172,12 +168,12 @@ fn downloads() -> Downloads {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn run_app<B: Backend>(
-    terminal: &mut Terminal<B>,
+fn run_app(
+    mut terminal: Terminal<impl Backend>,
     workers: Vec<Worker>,
     mut downloads: Downloads,
     rx: mpsc::Receiver<Event>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<()> {
     let mut redraw = true;
     loop {
         if redraw {
@@ -236,7 +232,7 @@ fn run_app<B: Backend>(
 fn ui(f: &mut Frame, downloads: &Downloads) {
     let area = f.size();
 
-    let block = Block::default().title(block::Title::from("Progress").alignment(Alignment::Center));
+    let block = Block::new().title(block::Title::from("Progress").alignment(Alignment::Center));
     f.render_widget(block, area);
 
     let vertical = Layout::vertical([Constraint::Length(2), Constraint::Length(4)]).margin(1);
@@ -248,7 +244,7 @@ fn ui(f: &mut Frame, downloads: &Downloads) {
     let done = NUM_DOWNLOADS - downloads.pending.len() - downloads.in_progress.len();
     #[allow(clippy::cast_precision_loss)]
     let progress = LineGauge::default()
-        .gauge_style(Style::default().fg(Color::Blue))
+        .filled_style(Style::default().fg(Color::Blue))
         .label(format!("{done}/{NUM_DOWNLOADS}"))
         .ratio(done as f64 / NUM_DOWNLOADS as f64);
     f.render_widget(progress, progress_area);

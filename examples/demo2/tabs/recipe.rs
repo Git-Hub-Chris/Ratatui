@@ -1,5 +1,14 @@
 use itertools::Itertools;
-use ratatui::{prelude::*, widgets::*};
+use ratatui::{
+    buffer::Buffer,
+    layout::{Alignment, Constraint, Layout, Margin, Rect},
+    style::{Style, Stylize},
+    text::Line,
+    widgets::{
+        Block, Clear, Padding, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, Table, TableState, Widget, Wrap,
+    },
+};
 
 use crate::{RgbSwatch, THEME};
 
@@ -105,7 +114,7 @@ impl RecipeTab {
 impl Widget for RecipeTab {
     fn render(self, area: Rect, buf: &mut Buffer) {
         RgbSwatch.render(area, buf);
-        let area = area.inner(&Margin {
+        let area = area.inner(Margin {
             vertical: 1,
             horizontal: 2,
         });
@@ -124,7 +133,7 @@ impl Widget for RecipeTab {
         };
         render_scrollbar(self.row_index, scrollbar_area, buf);
 
-        let area = area.inner(&Margin {
+        let area = area.inner(Margin {
             horizontal: 2,
             vertical: 1,
         });
@@ -151,15 +160,12 @@ fn render_ingredients(selected_row: usize, area: Rect, buf: &mut Buffer) {
     let mut state = TableState::default().with_selected(Some(selected_row));
     let rows = INGREDIENTS.iter().copied();
     let theme = THEME.recipe;
-    StatefulWidget::render(
-        Table::new(rows, [Constraint::Length(7), Constraint::Length(30)])
-            .block(Block::new().style(theme.ingredients))
-            .header(Row::new(vec!["Qty", "Ingredient"]).style(theme.ingredients_header))
-            .highlight_style(Style::new().light_yellow()),
-        area,
-        buf,
-        &mut state,
-    );
+
+    Table::new(rows, [Constraint::Length(7), Constraint::Length(30)])
+        .block(Block::new().style(theme.ingredients))
+        .header(Row::new(vec!["Qty", "Ingredient"]).style(theme.ingredients_header))
+        .highlight_style(Style::new().light_yellow())
+        .render_stateful(area, buf, &mut state);
 }
 
 fn render_scrollbar(position: usize, area: Rect, buf: &mut Buffer) {
@@ -172,5 +178,5 @@ fn render_scrollbar(position: usize, area: Rect, buf: &mut Buffer) {
         .end_symbol(None)
         .track_symbol(None)
         .thumb_symbol("▐")
-        .render(area, buf, &mut state);
+        .render_stateful(area, buf, &mut state);
 }

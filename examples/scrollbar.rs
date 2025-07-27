@@ -14,20 +14,20 @@
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
 #![warn(clippy::pedantic)]
-#![allow(clippy::wildcard_imports)]
 
-use std::{
-    error::Error,
-    io,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+use color_eyre::Result;
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode},
+    layout::{Alignment, Constraint, Layout, Margin},
+    style::{Color, Style, Stylize},
+    symbols::scrollbar,
+    terminal::Frame,
+    text::{Line, Masked, Span},
+    widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
-use ratatui::{prelude::*, symbols::scrollbar, widgets::*};
 
 #[derive(Default)]
 struct App {
@@ -37,40 +37,13 @@ struct App {
     pub horizontal_scroll: usize,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+fn main() -> Result<()> {
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?
+        .with_mouse_capture()?
+        .to_terminal()?;
 
-    // create app and run it
     let tick_rate = Duration::from_millis(250);
-    let app = App::default();
-    let res = run_app(&mut terminal, app, tick_rate);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{err:?}");
-    }
-
-    Ok(())
-}
-
-fn run_app<B: Backend>(
-    terminal: &mut Terminal<B>,
-    mut app: App,
-    tick_rate: Duration,
-) -> io::Result<()> {
+    let mut app = App::default();
     let mut last_tick = Instant::now();
     loop {
         terminal.draw(|f| ui(f, &mut app))?;
@@ -186,7 +159,7 @@ fn ui(f: &mut Frame, app: &mut App) {
             .begin_symbol(None)
             .track_symbol(None)
             .end_symbol(None),
-        chunks[2].inner(&Margin {
+        chunks[2].inner(Margin {
             vertical: 1,
             horizontal: 0,
         }),
@@ -204,7 +177,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
             .thumb_symbol("🬋")
             .end_symbol(None),
-        chunks[3].inner(&Margin {
+        chunks[3].inner(Margin {
             vertical: 0,
             horizontal: 1,
         }),
@@ -222,7 +195,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
             .thumb_symbol("░")
             .track_symbol(Some("─")),
-        chunks[4].inner(&Margin {
+        chunks[4].inner(Margin {
             vertical: 0,
             horizontal: 1,
         }),

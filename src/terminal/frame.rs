@@ -65,7 +65,7 @@ impl Frame<'_> {
     /// # let backend = TestBackend::new(5, 5);
     /// # let mut terminal = Terminal::new(backend).unwrap();
     /// # let mut frame = terminal.get_frame();
-    /// let block = Block::default();
+    /// let block = Block::new();
     /// let area = Rect::new(0, 0, 5, 5);
     /// frame.render_widget(block, area);
     /// ```
@@ -83,13 +83,15 @@ impl Frame<'_> {
     /// # Example
     ///
     /// ```rust
+    /// # #[cfg(feature = "unstable-widget-ref")] {
     /// # use ratatui::{backend::TestBackend, prelude::*, widgets::Block};
     /// # let backend = TestBackend::new(5, 5);
     /// # let mut terminal = Terminal::new(backend).unwrap();
     /// # let mut frame = terminal.get_frame();
-    /// let block = Block::default();
+    /// let block = Block::new();
     /// let area = Rect::new(0, 0, 5, 5);
     /// frame.render_widget_ref(block, area);
+    /// # }
     /// ```
     #[allow(clippy::needless_pass_by_value)]
     #[stability::unstable(feature = "widget-ref")]
@@ -97,7 +99,7 @@ impl Frame<'_> {
         widget.render_ref(area, self.buffer);
     }
 
-    /// Render a [`StatefulWidget`] to the current buffer using [`StatefulWidget::render`].
+    /// Render a [`StatefulWidget`] to the current buffer using [`StatefulWidget::render_stateful`].
     ///
     /// Usually the area argument is the size of the current frame or a sub-area of the current
     /// frame (which can be obtained using [`Layout`] to split the total area).
@@ -123,11 +125,11 @@ impl Frame<'_> {
     where
         W: StatefulWidget,
     {
-        widget.render(area, self.buffer, state);
+        widget.render_stateful(area, self.buffer, state);
     }
 
     /// Render a [`StatefulWidgetRef`] to the current buffer using
-    /// [`StatefulWidgetRef::render_ref`].
+    /// [`StatefulWidgetRef::render_stateful_ref`].
     ///
     /// Usually the area argument is the size of the current frame or a sub-area of the current
     /// frame (which can be obtained using [`Layout`] to split the total area).
@@ -138,6 +140,7 @@ impl Frame<'_> {
     /// # Example
     ///
     /// ```rust
+    /// # #[cfg(feature = "unstable-widget-ref")] {
     /// # use ratatui::{backend::TestBackend, prelude::*, widgets::*};
     /// # let backend = TestBackend::new(5, 5);
     /// # let mut terminal = Terminal::new(backend).unwrap();
@@ -146,6 +149,7 @@ impl Frame<'_> {
     /// let list = List::new(vec![ListItem::new("Item 1"), ListItem::new("Item 2")]);
     /// let area = Rect::new(0, 0, 5, 5);
     /// frame.render_stateful_widget_ref(list, area, &mut state);
+    /// # }
     /// ```
     #[allow(clippy::needless_pass_by_value)]
     #[stability::unstable(feature = "widget-ref")]
@@ -153,7 +157,7 @@ impl Frame<'_> {
     where
         W: StatefulWidgetRef,
     {
-        widget.render_ref(area, self.buffer, state);
+        widget.render_stateful_ref(area, self.buffer, state);
     }
 
     /// After drawing this frame, make the cursor visible and put it at the specified (x, y)

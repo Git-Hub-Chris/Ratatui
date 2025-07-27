@@ -1,5 +1,14 @@
 use itertools::Itertools;
-use ratatui::{prelude::*, widgets::*};
+use ratatui::{
+    buffer::Buffer,
+    layout::{Constraint, Layout, Margin, Rect},
+    style::{Styled, Stylize},
+    text::Line,
+    widgets::{
+        Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph,
+        Scrollbar, ScrollbarState, StatefulWidget, Tabs, Widget,
+    },
+};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{RgbSwatch, THEME};
@@ -59,7 +68,7 @@ impl EmailTab {
 impl Widget for EmailTab {
     fn render(self, area: Rect, buf: &mut Buffer) {
         RgbSwatch.render(area, buf);
-        let area = area.inner(&Margin {
+        let area = area.inner(Margin {
             vertical: 1,
             horizontal: 2,
         });
@@ -95,15 +104,12 @@ fn render_inbox(selected_index: usize, area: Rect, buf: &mut Buffer) {
         })
         .collect_vec();
     let mut state = ListState::default().with_selected(Some(selected_index));
-    StatefulWidget::render(
-        List::new(items)
-            .style(theme.inbox)
-            .highlight_style(theme.selected_item)
-            .highlight_symbol(highlight_symbol),
-        inbox,
-        buf,
-        &mut state,
-    );
+
+    List::new(items)
+        .style(theme.inbox)
+        .highlight_style(theme.selected_item)
+        .highlight_symbol(highlight_symbol)
+        .render_stateful(inbox, buf, &mut state);
     let mut scrollbar_state = ScrollbarState::default()
         .content_length(EMAILS.len())
         .position(selected_index);
@@ -112,7 +118,7 @@ fn render_inbox(selected_index: usize, area: Rect, buf: &mut Buffer) {
         .end_symbol(None)
         .track_symbol(None)
         .thumb_symbol("▐")
-        .render(inbox, buf, &mut scrollbar_state);
+        .render_stateful(inbox, buf, &mut scrollbar_state);
 }
 
 fn render_email(selected_index: usize, area: Rect, buf: &mut Buffer) {

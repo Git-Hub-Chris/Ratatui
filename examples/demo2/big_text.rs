@@ -20,7 +20,16 @@
 //!
 //! ```rust
 //! use anyhow::Result;
-//! use ratatui::prelude::*;
+//! use ratatui::{
+//!     backend::{self, Backend, CrosstermBackend},
+//!     buffer::{self, Buffer},
+//!     layout::{self, Alignment, Constraint, Direction, Layout, Margin, Rect},
+//!     style::{self, Color, Modifier, Style, Styled, Stylize},
+//!     symbols::{self, Marker},
+//!     terminal::{CompletedFrame, Frame, Terminal, TerminalOptions, Viewport},
+//!     text::{self, Line, Masked, Span, Text},
+//!     widgets::{block::BlockExt, StatefulWidget, Widget},
+//! };
 //! use tui_big_text::{BigTextBuilder, PixelSize};
 //!
 //! fn render(frame: &mut Frame) -> Result<()> {
@@ -50,7 +59,13 @@ use std::cmp::min;
 
 use derive_builder::Builder;
 use font8x8::UnicodeFonts;
-use ratatui::{prelude::*, text::StyledGrapheme};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::Style,
+    text::{Line, StyledGrapheme},
+    widgets::Widget,
+};
 
 #[allow(unused)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
@@ -79,7 +94,16 @@ pub enum PixelSize {
 /// # Examples
 ///
 /// ```rust
-/// use ratatui::prelude::*;
+/// use ratatui::{
+///     backend::{self, Backend, CrosstermBackend},
+///     buffer::{self, Buffer},
+///     layout::{self, Alignment, Constraint, Direction, Layout, Margin, Rect},
+///     style::{self, Color, Modifier, Style, Styled, Stylize},
+///     symbols::{self, Marker},
+///     terminal::{CompletedFrame, Frame, Terminal, TerminalOptions, Viewport},
+///     text::{self, Line, Masked, Span, Text},
+///     widgets::{block::BlockExt, StatefulWidget, Widget},
+/// };
 /// use tui_big_text::{BigTextBuilder, PixelSize};
 ///
 /// BigText::builder()
@@ -245,7 +269,7 @@ fn render_glyph(glyph: [u8; 8], area: Rect, buf: &mut Buffer, pixel_size: PixelS
             .clone()
             .zip(area.left()..area.right())
         {
-            let cell = buf.get_mut(x, y);
+            let cell = &mut buf[(x, y)];
             let symbol_character = match pixel_size {
                 PixelSize::Full => match glyph[row] & (1 << col) {
                     0 => ' ',
@@ -276,7 +300,7 @@ fn render_glyph(glyph: [u8; 8], area: Rect, buf: &mut Buffer, pixel_size: PixelS
 
 #[cfg(test)]
 mod tests {
-    use ratatui::assert_buffer_eq;
+    use ratatui::style::Stylize;
 
     use super::*;
 
@@ -308,7 +332,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 80, 8));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             " ████     ██                     ███            ████      ██                    ",
             "██  ██                            ██             ██                             ",
             "███      ███    █████    ███ ██   ██     ████    ██      ███    █████    ████   ",
@@ -318,7 +342,7 @@ mod tests {
             " ████    ████   ██  ██      ██   ████    ████   ███████  ████   ██  ██   ████   ",
             "                        █████                                                   ",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -329,7 +353,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 70, 6));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "██████                                             █               ███",
             "█ ██ █                                            ██                ██",
             "  ██    ██ ███  ██  ██  █████    ████    ████    █████   ████       ██",
@@ -337,7 +361,7 @@ mod tests {
             "  ██     ██  ██ ██  ██  ██  ██  ██       █████    ██    ██████  ██  ██",
             "  ██     ██     ██  ██  ██  ██  ██  ██  ██  ██    ██ █  ██      ██  ██",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -348,7 +372,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 40, 16));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "██   ██          ███       █      ██    ",
             "███ ███           ██      ██            ",
             "███████ ██  ██    ██     █████   ███    ",
@@ -366,7 +390,7 @@ mod tests {
             "███████  ████   ██  ██   ████   █████   ",
             "                                        ",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -378,18 +402,17 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 48, 8));
         big_text.render(buf.area, &mut buf);
-        let mut expected = Buffer::with_lines(vec![
-            " ████      █             ███               ███  ",
-            "██  ██    ██              ██                ██  ",
-            "███      █████  ██  ██    ██     ████       ██  ",
-            " ███      ██    ██  ██    ██    ██  ██   █████  ",
-            "   ███    ██    ██  ██    ██    ██████  ██  ██  ",
-            "██  ██    ██ █   █████    ██    ██      ██  ██  ",
-            " ████      ██       ██   ████    ████    ███ ██ ",
-            "                █████                           ",
+        let expected = Buffer::with_lines([
+            " ████      █             ███               ███  ".bold(),
+            "██  ██    ██              ██                ██  ".bold(),
+            "███      █████  ██  ██    ██     ████       ██  ".bold(),
+            " ███      ██    ██  ██    ██    ██  ██   █████  ".bold(),
+            "   ███    ██    ██  ██    ██    ██████  ██  ██  ".bold(),
+            "██  ██    ██ █   █████    ██    ██      ██  ██  ".bold(),
+            " ████      ██       ██   ████    ████    ███ ██ ".bold(),
+            "                █████                           ".bold(),
         ]);
-        expected.set_style(Rect::new(0, 0, 48, 8), Style::new().bold());
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -404,7 +427,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 40, 24));
         big_text.render(buf.area, &mut buf);
-        let mut expected = Buffer::with_lines(vec![
+        let mut expected = Buffer::with_lines([
             "██████             ███                  ",
             " ██  ██             ██                  ",
             " ██  ██  ████       ██                  ",
@@ -433,7 +456,7 @@ mod tests {
         expected.set_style(Rect::new(0, 0, 24, 8), Style::new().red());
         expected.set_style(Rect::new(0, 8, 40, 8), Style::new().green());
         expected.set_style(Rect::new(0, 16, 32, 8), Style::new().blue());
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -445,13 +468,13 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 80, 4));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "▄█▀▀█▄    ▀▀                     ▀██            ▀██▀      ▀▀                    ",
             "▀██▄     ▀██    ██▀▀█▄  ▄█▀▀▄█▀   ██    ▄█▀▀█▄   ██      ▀██    ██▀▀█▄  ▄█▀▀█▄  ",
             "▄▄ ▀██    ██    ██  ██  ▀█▄▄██    ██    ██▀▀▀▀   ██  ▄█   ██    ██  ██  ██▀▀▀▀  ",
             " ▀▀▀▀    ▀▀▀▀   ▀▀  ▀▀  ▄▄▄▄█▀   ▀▀▀▀    ▀▀▀▀   ▀▀▀▀▀▀▀  ▀▀▀▀   ▀▀  ▀▀   ▀▀▀▀   ",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -463,12 +486,12 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 70, 3));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "█▀██▀█                                            ▄█               ▀██",
             "  ██    ▀█▄█▀█▄ ██  ██  ██▀▀█▄  ▄█▀▀█▄   ▀▀▀█▄   ▀██▀▀  ▄█▀▀█▄   ▄▄▄██",
             "  ██     ██  ▀▀ ██  ██  ██  ██  ██  ▄▄  ▄█▀▀██    ██ ▄  ██▀▀▀▀  ██  ██",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -480,7 +503,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 40, 8));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "██▄ ▄██          ▀██      ▄█      ▀▀    ",
             "███████ ██  ██    ██     ▀██▀▀   ▀██    ",
             "██ ▀ ██ ██  ██    ██      ██ ▄    ██    ",
@@ -490,7 +513,7 @@ mod tests {
             " ██  ▄█   ██    ██  ██  ██▀▀▀▀   ▀▀▀█▄  ",
             "▀▀▀▀▀▀▀  ▀▀▀▀   ▀▀  ▀▀   ▀▀▀▀   ▀▀▀▀▀   ",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -503,14 +526,13 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 48, 4));
         big_text.render(buf.area, &mut buf);
-        let mut expected = Buffer::with_lines(vec![
-            "▄█▀▀█▄    ▄█             ▀██               ▀██  ",
-            "▀██▄     ▀██▀▀  ██  ██    ██    ▄█▀▀█▄   ▄▄▄██  ",
-            "▄▄ ▀██    ██ ▄  ▀█▄▄██    ██    ██▀▀▀▀  ██  ██  ",
-            " ▀▀▀▀      ▀▀   ▄▄▄▄█▀   ▀▀▀▀    ▀▀▀▀    ▀▀▀ ▀▀ ",
+        let expected = Buffer::with_lines([
+            "▄█▀▀█▄    ▄█             ▀██               ▀██  ".bold(),
+            "▀██▄     ▀██▀▀  ██  ██    ██    ▄█▀▀█▄   ▄▄▄██  ".bold(),
+            "▄▄ ▀██    ██ ▄  ▀█▄▄██    ██    ██▀▀▀▀  ██  ██  ".bold(),
+            " ▀▀▀▀      ▀▀   ▄▄▄▄█▀   ▀▀▀▀    ▀▀▀▀    ▀▀▀ ▀▀ ".bold(),
         ]);
-        expected.set_style(Rect::new(0, 0, 48, 4), Style::new().bold());
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -526,7 +548,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 40, 12));
         big_text.render(buf.area, &mut buf);
-        let mut expected = Buffer::with_lines(vec![
+        let mut expected = Buffer::with_lines([
             "▀██▀▀█▄            ▀██                  ",
             " ██▄▄█▀ ▄█▀▀█▄   ▄▄▄██                  ",
             " ██ ▀█▄ ██▀▀▀▀  ██  ██                  ",
@@ -543,7 +565,7 @@ mod tests {
         expected.set_style(Rect::new(0, 0, 24, 4), Style::new().red());
         expected.set_style(Rect::new(0, 4, 40, 4), Style::new().green());
         expected.set_style(Rect::new(0, 8, 32, 4), Style::new().blue());
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -555,7 +577,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 40, 8));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "▐█▌  █          ▐█      ██   █          ",
             "█ █              █      ▐▌              ",
             "█▌  ▐█  ██▌ ▐█▐▌ █  ▐█▌ ▐▌  ▐█  ██▌ ▐█▌ ",
@@ -565,7 +587,7 @@ mod tests {
             "▐█▌ ▐█▌ █ █   █ ▐█▌ ▐█▌ ███▌▐█▌ █ █ ▐█▌ ",
             "            ██▌                         ",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -577,7 +599,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 35, 6));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "███                      ▐       ▐█",
             "▌█▐                      █        █",
             " █  █▐█ █ █ ██▌ ▐█▌ ▐█▌ ▐██ ▐█▌   █",
@@ -585,7 +607,7 @@ mod tests {
             " █  ▐▌▐▌█ █ █ █ █   ▐██  █  ███ █ █",
             " █  ▐▌  █ █ █ █ █ █ █ █  █▐ █   █ █",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -597,7 +619,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 16));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "█ ▐▌    ▐█   ▐   █  ",
             "█▌█▌     █   █      ",
             "███▌█ █  █  ▐██ ▐█  ",
@@ -615,7 +637,7 @@ mod tests {
             "███▌▐█▌ █ █ ▐█▌ ██▌ ",
             "                    ",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -628,18 +650,17 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 24, 8));
         big_text.render(buf.area, &mut buf);
-        let mut expected = Buffer::with_lines(vec![
-            "▐█▌  ▐      ▐█       ▐█ ",
-            "█ █  █       █        █ ",
-            "█▌  ▐██ █ █  █  ▐█▌   █ ",
-            "▐█   █  █ █  █  █ █ ▐██ ",
-            " ▐█  █  █ █  █  ███ █ █ ",
-            "█ █  █▐ ▐██  █  █   █ █ ",
-            "▐█▌  ▐▌   █ ▐█▌ ▐█▌ ▐█▐▌",
-            "        ██▌             ",
+        let expected = Buffer::with_lines([
+            "▐█▌  ▐      ▐█       ▐█ ".bold(),
+            "█ █  █       █        █ ".bold(),
+            "█▌  ▐██ █ █  █  ▐█▌   █ ".bold(),
+            "▐█   █  █ █  █  █ █ ▐██ ".bold(),
+            " ▐█  █  █ █  █  ███ █ █ ".bold(),
+            "█ █  █▐ ▐██  █  █   █ █ ".bold(),
+            "▐█▌  ▐▌   █ ▐█▌ ▐█▌ ▐█▐▌".bold(),
+            "        ██▌             ".bold(),
         ]);
-        expected.set_style(Rect::new(0, 0, 24, 8), Style::new().bold());
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -655,7 +676,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 24));
         big_text.render(buf.area, &mut buf);
-        let mut expected = Buffer::with_lines(vec![
+        let mut expected = Buffer::with_lines([
             "███      ▐█         ",
             "▐▌▐▌      █         ",
             "▐▌▐▌▐█▌   █         ",
@@ -684,7 +705,7 @@ mod tests {
         expected.set_style(Rect::new(0, 0, 12, 8), Style::new().red());
         expected.set_style(Rect::new(0, 8, 20, 8), Style::new().green());
         expected.set_style(Rect::new(0, 16, 16, 8), Style::new().blue());
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -717,13 +738,13 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 40, 4));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "▟▀▙  ▀          ▝█      ▜▛   ▀          ",
             "▜▙  ▝█  █▀▙ ▟▀▟▘ █  ▟▀▙ ▐▌  ▝█  █▀▙ ▟▀▙ ",
             "▄▝█  █  █ █ ▜▄█  █  █▀▀ ▐▌▗▌ █  █ █ █▀▀ ",
             "▝▀▘ ▝▀▘ ▀ ▀ ▄▄▛ ▝▀▘ ▝▀▘ ▀▀▀▘▝▀▘ ▀ ▀ ▝▀▘ ",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -735,12 +756,12 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 35, 3));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "▛█▜                      ▟       ▝█",
             " █  ▜▟▜▖█ █ █▀▙ ▟▀▙ ▝▀▙ ▝█▀ ▟▀▙ ▗▄█",
             " █  ▐▌▝▘█ █ █ █ █ ▄ ▟▀█  █▗ █▀▀ █ █",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -752,7 +773,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 8));
         big_text.render(buf.area, &mut buf);
-        let expected = Buffer::with_lines(vec![
+        let expected = Buffer::with_lines([
             "█▖▟▌    ▝█   ▟   ▀  ",
             "███▌█ █  █  ▝█▀ ▝█  ",
             "█▝▐▌█ █  █   █▗  █  ",
@@ -762,7 +783,7 @@ mod tests {
             "▐▌▗▌ █  █ █ █▀▀ ▝▀▙ ",
             "▀▀▀▘▝▀▘ ▀ ▀ ▝▀▘ ▀▀▘ ",
         ]);
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -775,14 +796,13 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 24, 4));
         big_text.render(buf.area, &mut buf);
-        let mut expected = Buffer::with_lines(vec![
-            "▟▀▙  ▟      ▝█       ▝█ ",
-            "▜▙  ▝█▀ █ █  █  ▟▀▙ ▗▄█ ",
-            "▄▝█  █▗ ▜▄█  █  █▀▀ █ █ ",
-            "▝▀▘  ▝▘ ▄▄▛ ▝▀▘ ▝▀▘ ▝▀▝▘",
+        let expected = Buffer::with_lines([
+            "▟▀▙  ▟      ▝█       ▝█ ".bold(),
+            "▜▙  ▝█▀ █ █  █  ▟▀▙ ▗▄█ ".bold(),
+            "▄▝█  █▗ ▜▄█  █  █▀▀ █ █ ".bold(),
+            "▝▀▘  ▝▘ ▄▄▛ ▝▀▘ ▝▀▘ ▝▀▝▘".bold(),
         ]);
-        expected.set_style(Rect::new(0, 0, 24, 4), Style::new().bold());
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 
@@ -798,7 +818,7 @@ mod tests {
             .build()?;
         let mut buf = Buffer::empty(Rect::new(0, 0, 20, 12));
         big_text.render(buf.area, &mut buf);
-        let mut expected = Buffer::with_lines(vec![
+        let mut expected = Buffer::with_lines([
             "▜▛▜▖     ▝█         ",
             "▐▙▟▘▟▀▙ ▗▄█         ",
             "▐▌▜▖█▀▀ █ █         ",
@@ -815,7 +835,7 @@ mod tests {
         expected.set_style(Rect::new(0, 0, 12, 4), Style::new().red());
         expected.set_style(Rect::new(0, 4, 20, 4), Style::new().green());
         expected.set_style(Rect::new(0, 8, 16, 4), Style::new().blue());
-        assert_buffer_eq!(buf, expected);
+        assert_eq!(buf, expected);
         Ok(())
     }
 }
