@@ -22,8 +22,7 @@ use crate::{
             ContentStyle, Print, SetAttribute, SetBackgroundColor, SetColors, SetForegroundColor,
         },
         terminal::{
-            self, disable_raw_mode, enable_raw_mode, Clear, EnterAlternateScreen,
-            LeaveAlternateScreen,
+            disable_raw_mode, enable_raw_mode, Clear, EnterAlternateScreen, LeaveAlternateScreen,
         },
     },
     layout::{Rect, Size},
@@ -42,15 +41,15 @@ use crate::{
 /// alternate screen using [`CrosstermBackend::stdout_with_defaults`] or
 /// [`CrosstermBackend::stderr_with_defaults`].
 ///
-/// The `CrosstermBackend` can be converted into a [`Terminal`] instance using
-/// [`CrosstermBackend::to_terminal`].
-///
 /// If the default settings are not desired, the `CrosstermBackend` can be configured using the
 /// `with_*` methods. These methods return an [`io::Result`] containing self so that they can be
 /// chained with other methods. The settings are restored when the `CrosstermBackend` is dropped.
 /// - [`CrosstermBackend::with_raw_mode`] enables raw mode for the terminal.
 /// - [`CrosstermBackend::with_alternate_screen`] switches to the alternate screen.
 /// - [`CrosstermBackend::with_mouse_capture`] enables mouse capture.
+/// - [`CrosstermBackend::with_bracketed_paste`] enables bracketed paste.
+/// - [`CrosstermBackend::with_focus_change`] enables focus change.
+/// - [`CrosstermBackend::with_keyboard_enhancement_flags`] enables keyboard enhancement flags.
 ///
 /// If a backend is configured using the `with_*` methods, the settings are restored when the
 /// `CrosstermBackend` is dropped.
@@ -109,11 +108,8 @@ impl<W: io::Write> CrosstermBackend<W> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use std::io;
-    ///
-    /// use ratatui::backend::CrosstermBackend;
-    ///
-    /// let backend = CrosstermBackend::new(io::stdout());
+    /// # use ratatui::backend::CrosstermBackend;
+    /// let backend = CrosstermBackend::new(std::io::stdout());
     /// ```
     pub const fn new(writer: W) -> Self {
         Self {
@@ -171,8 +167,7 @@ impl CrosstermBackend<io::Stdout> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use ratatui::backend::CrosstermBackend;
-    ///
+    /// # use ratatui::backend::CrosstermBackend;
     /// let backend = CrosstermBackend::stdout_with_defaults()?;
     /// # std::io::Result::Ok(())
     /// ```
@@ -206,8 +201,7 @@ impl CrosstermBackend<io::Stderr> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use ratatui::backend::CrosstermBackend;
-    ///
+    /// # use ratatui::backend::CrosstermBackend;
     /// let backend = CrosstermBackend::stderr_with_defaults()?;
     /// # std::io::Result::Ok(())
     /// ```
@@ -253,8 +247,7 @@ impl<W: io::Write> CrosstermBackend<W> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use ratatui::backend::CrosstermBackend;
-    ///
+    /// # use ratatui::backend::CrosstermBackend;
     /// let backend = CrosstermBackend::stdout().with_raw_mode()?;
     /// # std::io::Result::Ok(())
     /// ```
@@ -273,8 +266,7 @@ impl<W: io::Write> CrosstermBackend<W> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use ratatui::backend::CrosstermBackend;
-    ///
+    /// # use ratatui::backend::CrosstermBackend;
     /// let backend = CrosstermBackend::stdout().with_alternate_screen()?;
     /// # std::io::Result::Ok(())
     /// ```
@@ -293,8 +285,7 @@ impl<W: io::Write> CrosstermBackend<W> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use ratatui::backend::CrosstermBackend;
-    ///
+    /// # use ratatui::backend::CrosstermBackend;
     /// let backend = CrosstermBackend::stdout().with_mouse_capture()?;
     /// # std::io::Result::Ok(())
     /// ```
@@ -311,8 +302,7 @@ impl<W: io::Write> CrosstermBackend<W> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use ratatui::backend::CrosstermBackend;
-    ///
+    /// # use ratatui::backend::CrosstermBackend;
     /// let backend = CrosstermBackend::stdout().with_bracketed_paste()?;
     /// # std::io::Result::Ok(())
     /// ```
@@ -329,8 +319,7 @@ impl<W: io::Write> CrosstermBackend<W> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use ratatui::backend::CrosstermBackend;
-    ///
+    /// # use ratatui::backend::CrosstermBackend;
     /// let backend = CrosstermBackend::stdout().with_focus_change()?;
     /// # std::io::Result::Ok(())
     pub fn with_focus_change(mut self) -> io::Result<Self> {
@@ -411,7 +400,7 @@ impl<W: io::Write> CrosstermBackend<W> {
             let _ = CrosstermBackend::reset(stderr());
             error(e)
         }))
-        .map_err(|error| io::Error::other(error))?;
+
         panic::set_hook(Box::new(move |info| {
             // ignore errors here because we are already in an error state
             let _ = CrosstermBackend::reset(stderr());
@@ -429,15 +418,19 @@ impl<W: io::Write> CrosstermBackend<W> {
     /// - Disables focus change
     /// - Pops keyboard enhancement flags
     ///
-    /// Note: this met
+    /// This method is an associated method rather than an instance method to make it possible to
+    /// call without having a `CrosstermBackend` instance. This is often useful in the context of
+    /// error / panic handling.
+    ///
+    /// If you have created a `CrosstermBackend` using the `with_*` methods, the settings are
+    /// restored when the `CrosstermBackend` is dropped, so you do not need to call this method
+    /// manually.
+    ///
     /// # Example
     ///
     /// ```rust,no_run
-    /// use std::io::stdout;
-    ///
-    /// use ratatui::backend::CrosstermBackend;
-    ///
-    /// CrosstermBackend::reset(stdout())?;
+    /// # use ratatui::backend::CrosstermBackend;
+    /// CrosstermBackend::reset(std::io::stderr())?;
     /// # std::io::Result::Ok(())
     /// ```
     pub fn reset(mut writer: W) -> io::Result<()> {
@@ -594,7 +587,7 @@ impl<W: io::Write> Backend for CrosstermBackend<W> {
     }
 
     fn size(&self) -> io::Result<Rect> {
-        let (width, height) = terminal::size()?;
+        let (width, height) = crossterm::terminal::size()?;
         Ok(Rect::new(0, 0, width, height))
     }
 
@@ -604,7 +597,7 @@ impl<W: io::Write> Backend for CrosstermBackend<W> {
             rows,
             width,
             height,
-        } = terminal::window_size()?;
+        } = crossterm::terminal::window_size()?;
         Ok(WindowSize {
             columns_rows: Size {
                 width: columns,

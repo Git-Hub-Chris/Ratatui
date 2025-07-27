@@ -313,8 +313,20 @@ impl FromStr for Color {
                 _ => {
                     if let Ok(index) = s.parse::<u8>() {
                         Self::Indexed(index)
-                    } else if let Some((r, g, b)) = parse_hex_color(s) {
-                        Self::Rgb(r, g, b)
+                    } else if s.starts_with('#') && s.len() == 7 {
+                        let red = s
+                            .get(1..3)
+                            .and_then(|v| u8::from_str_radix(v, 16).ok())
+                            .ok_or(ParseColorError)?;
+                        let green = s
+                            .get(3..5)
+                            .and_then(|v| u8::from_str_radix(v, 16).ok())
+                            .ok_or(ParseColorError)?;
+                        let blue = s
+                            .get(5..7)
+                            .and_then(|v| u8::from_str_radix(v, 16).ok())
+                            .ok_or(ParseColorError)?;
+                        Self::Rgb(red, green, blue)
                     } else {
                         return Err(ParseColorError);
                     }
@@ -322,16 +334,6 @@ impl FromStr for Color {
             },
         )
     }
-}
-
-fn parse_hex_color(input: &str) -> Option<(u8, u8, u8)> {
-    if !input.starts_with('#') || input.len() != 7 {
-        return None;
-    }
-    let r = u8::from_str_radix(input.get(1..3)?, 16).ok()?;
-    let g = u8::from_str_radix(input.get(3..5)?, 16).ok()?;
-    let b = u8::from_str_radix(input.get(5..7)?, 16).ok()?;
-    Some((r, g, b))
 }
 
 impl fmt::Display for Color {
