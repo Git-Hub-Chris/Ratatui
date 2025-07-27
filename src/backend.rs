@@ -107,7 +107,6 @@ use strum::{Display, EnumString};
 use crate::{
     buffer::Cell,
     layout::{Rect, Size},
-    Terminal, TerminalOptions,
 };
 
 #[cfg(feature = "termion")]

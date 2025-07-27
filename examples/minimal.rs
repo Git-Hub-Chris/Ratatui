@@ -15,7 +15,7 @@
 
 use color_eyre::Result;
 use ratatui::{
-    backend::{Backend, CrosstermBackend},
+
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
     text::Text,
 };
@@ -26,8 +26,7 @@ use ratatui::{
 ///
 /// [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 /// [hello-world]: https://github.com/ratatui-org/ratatui/blob/main/examples/hello_world.rs
-fn main() -> Result<()> {
-    let mut terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
+
     terminal.clear()?;
     loop {
         terminal.draw(|frame| frame.render_widget(Text::raw("Hello World!"), frame.size()))?;

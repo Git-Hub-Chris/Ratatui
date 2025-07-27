@@ -83,8 +83,7 @@ struct ColorsWidget {
 }
 
 fn main() -> Result<()> {
-    let terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
-    App::default().run(terminal)
+
 }
 
 impl App {
@@ -243,3 +242,4 @@ impl ColorsWidget {
         }
     }
 }
+
