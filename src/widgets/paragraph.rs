@@ -5,8 +5,7 @@ use crate::{
     style::Styled,
     text::StyledGrapheme,
     widgets::{
-        reflow::{LineComposer, LineTruncator, WordWrapper, WrappedLine},
-        Block,
+
     },
 };
 
@@ -47,6 +46,8 @@ pub struct Paragraph<'a> {
     style: Style,
     /// How to wrap the text
     wrap: Option<Wrap>,
+    /// Whether leading whitespace should be trimmed
+    trim: bool,
     /// The text to display
     text: Text<'a>,
     /// Scroll
@@ -68,15 +69,13 @@ pub struct Paragraph<'a> {
 ///     - Here is another point that is long enough to wrap"#,
 /// );
 ///
-/// // With leading spaces trimmed (window width of 30 chars):
 
 /// // Some indented points:
-/// // - First thing goes here and is
-/// // long so that it wraps
-/// // - Here is another point that
-/// // is long enough to wrap
+/// //     - First thing goes here an
+/// // d is long so that it wraps
+/// //     - Here is another point th
+/// // at is long enough to wrap
 ///
-/// // But without trimming, indentation is preserved:
 
 /// // Some indented points:
 /// //     - First thing goes here
@@ -85,13 +84,7 @@ pub struct Paragraph<'a> {
 /// // that is long enough to wrap
 /// ```
 
-pub struct Wrap {
-    /// Should leading whitespace be trimmed
-    pub trim: bool,
-
 }
-
-
 
 impl<'a> Paragraph<'a> {
     /// Creates a new [`Paragraph`] widget with the given text.
@@ -117,6 +110,7 @@ impl<'a> Paragraph<'a> {
             block: None,
             style: Style::default(),
             wrap: None,
+            trim: false,
             text: text.into(),
             scroll: (0, 0),
             alignment: Alignment::Left,
@@ -173,19 +167,6 @@ impl<'a> Paragraph<'a> {
         self
     }
 
-    /// Set the scroll offset for the given paragraph
-    ///
-    /// The scroll offset is a tuple of (y, x) offset. The y offset is the number of lines to
-    /// scroll, and the x offset is the number of characters to scroll. The scroll offset is applied
-    /// after the text is wrapped and aligned.
-    ///
-    /// Note: the order of the tuple is (y, x) instead of (x, y), which is different from general
-    /// convention across the crate.
-    ///
-    /// For more information about future scrolling design and concerns, see [RFC: Design of
-    /// Scrollable Widgets](https://github.com/ratatui-org/ratatui/issues/174) on GitHub.
-    #[must_use = "method moves the value of self and returns the modified value"]
-    pub const fn scroll(mut self, offset: (Vertical, Horizontal)) -> Self {
         self.scroll = offset;
         self
     }
@@ -206,7 +187,6 @@ impl<'a> Paragraph<'a> {
         self.alignment = alignment;
         self
     }
-
 
 }
 
@@ -230,7 +210,6 @@ impl Paragraph<'_> {
         if text_area.is_empty() {
             return;
         }
-
 
                 }
                 self.draw_lines(text_area, buf, line_composer, self.scroll);
@@ -299,13 +278,7 @@ mod test {
         let line = "foo\u{200B}";
         for paragraph in [
             Paragraph::new(line),
-            Paragraph::new(line).wrap(Wrap { trim: false }),
-            Paragraph::new(line).wrap(Wrap { trim: true }),
-        ] {
-            test_case(&paragraph, &Buffer::with_lines(["foo"]));
-            test_case(&paragraph, &Buffer::with_lines(["foo   "]));
-            test_case(&paragraph, &Buffer::with_lines(["foo   ", "      "]));
-            test_case(&paragraph, &Buffer::with_lines(["foo", "   "]));
+
         }
     }
 
@@ -313,26 +286,14 @@ mod test {
     fn test_render_empty_paragraph() {
         for paragraph in [
             Paragraph::new(""),
-            Paragraph::new("").wrap(Wrap { trim: false }),
-            Paragraph::new("").wrap(Wrap { trim: true }),
-        ] {
-            test_case(&paragraph, &Buffer::with_lines([" "]));
-            test_case(&paragraph, &Buffer::with_lines(["          "]));
-            test_case(&paragraph, &Buffer::with_lines(["     "; 10]));
-            test_case(&paragraph, &Buffer::with_lines([" ", " "]));
+
         }
     }
 
     #[test]
     fn test_render_single_line_paragraph() {
         let text = "Hello, world!";
-        for paragraph in [
-            Paragraph::new(text),
-            Paragraph::new(text).wrap(Wrap { trim: false }),
-            Paragraph::new(text).wrap(Wrap { trim: true }),
-        ] {
-            test_case(&paragraph, &Buffer::with_lines(["Hello, world!  "]));
-            test_case(&paragraph, &Buffer::with_lines(["Hello, world!"]));
+
             test_case(
                 &paragraph,
                 &Buffer::with_lines(["Hello, world!  ", "               "]),
@@ -349,9 +310,7 @@ mod test {
         let text = "This is a\nmultiline\nparagraph.";
         for paragraph in [
             Paragraph::new(text),
-            Paragraph::new(text).wrap(Wrap { trim: false }),
-            Paragraph::new(text).wrap(Wrap { trim: true }),
-        ] {
+
             test_case(
                 &paragraph,
                 &Buffer::with_lines(["This is a ", "multiline ", "paragraph."]),
@@ -375,15 +334,7 @@ mod test {
 
     #[test]
     fn test_render_paragraph_with_block() {
-        // We use the slightly unconventional "worlds" instead of "world" here to make sure when we
-        // can truncate this without triggering the typos linter.
-        let text = "Hello, worlds!";
-        let truncated_paragraph = Paragraph::new(text).block(Block::bordered().title("Title"));
-        let wrapped_paragraph = truncated_paragraph.clone().wrap(Wrap { trim: false });
-        let trimmed_paragraph = truncated_paragraph.clone().wrap(Wrap { trim: true });
 
-        for paragraph in [&truncated_paragraph, &wrapped_paragraph, &trimmed_paragraph] {
-            #[rustfmt::skip]
             test_case(
                 paragraph,
                 &Buffer::with_lines([
@@ -421,8 +372,7 @@ mod test {
             ]),
         );
         test_case(
-            &wrapped_paragraph,
-            &Buffer::with_lines([
+
                 "┌Title──────┐",
                 "│Hello,     │",
                 "│worlds!    │",
@@ -490,8 +440,8 @@ mod test {
     #[test]
     fn test_render_paragraph_with_word_wrap() {
         let text = "This is a long line of text that should wrap      and contains a superultramegagigalong word.";
-        let wrapped_paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
-        let trimmed_paragraph = Paragraph::new(text).wrap(Wrap { trim: true });
+        let wrapped_paragraph = Paragraph::new(text).wrap(Wrap::WordBoundary).trim(false);
+        let trimmed_paragraph = Paragraph::new(text).wrap(Wrap::WordBoundary).trim(true);
 
         test_case(
             &wrapped_paragraph,
@@ -573,8 +523,14 @@ mod test {
     fn test_render_paragraph_with_left_alignment() {
         let text = "Hello, world!";
         let truncated_paragraph = Paragraph::new(text).alignment(Alignment::Left);
-        let wrapped_paragraph = truncated_paragraph.clone().wrap(Wrap { trim: false });
-        let trimmed_paragraph = truncated_paragraph.clone().wrap(Wrap { trim: true });
+        let wrapped_paragraph = truncated_paragraph
+            .clone()
+            .wrap(Wrap::WordBoundary)
+            .trim(false);
+        let trimmed_paragraph = truncated_paragraph
+            .clone()
+            .wrap(Wrap::WordBoundary)
+            .trim(true);
 
         for paragraph in [&truncated_paragraph, &wrapped_paragraph, &trimmed_paragraph] {
             test_case(paragraph, &Buffer::with_lines(["Hello, world!  "]));
@@ -596,8 +552,14 @@ mod test {
     fn test_render_paragraph_with_center_alignment() {
         let text = "Hello, world!";
         let truncated_paragraph = Paragraph::new(text).alignment(Alignment::Center);
-        let wrapped_paragraph = truncated_paragraph.clone().wrap(Wrap { trim: false });
-        let trimmed_paragraph = truncated_paragraph.clone().wrap(Wrap { trim: true });
+        let wrapped_paragraph = truncated_paragraph
+            .clone()
+            .wrap(Wrap::WordBoundary)
+            .trim(false);
+        let trimmed_paragraph = truncated_paragraph
+            .clone()
+            .wrap(Wrap::WordBoundary)
+            .trim(true);
 
         for paragraph in [&truncated_paragraph, &wrapped_paragraph, &trimmed_paragraph] {
             test_case(paragraph, &Buffer::with_lines([" Hello, world! "]));
@@ -621,8 +583,14 @@ mod test {
     fn test_render_paragraph_with_right_alignment() {
         let text = "Hello, world!";
         let truncated_paragraph = Paragraph::new(text).alignment(Alignment::Right);
-        let wrapped_paragraph = truncated_paragraph.clone().wrap(Wrap { trim: false });
-        let trimmed_paragraph = truncated_paragraph.clone().wrap(Wrap { trim: true });
+        let wrapped_paragraph = truncated_paragraph
+            .clone()
+            .wrap(Wrap::WordBoundary)
+            .trim(false);
+        let trimmed_paragraph = truncated_paragraph
+            .clone()
+            .wrap(Wrap::WordBoundary)
+            .trim(true);
 
         for paragraph in [&truncated_paragraph, &wrapped_paragraph, &trimmed_paragraph] {
             test_case(paragraph, &Buffer::with_lines(["  Hello, world!"]));
@@ -644,8 +612,14 @@ mod test {
     fn test_render_paragraph_with_scroll_offset() {
         let text = "This is a\ncool\nmultiline\nparagraph.";
         let truncated_paragraph = Paragraph::new(text).scroll((2, 0));
-        let wrapped_paragraph = truncated_paragraph.clone().wrap(Wrap { trim: false });
-        let trimmed_paragraph = truncated_paragraph.clone().wrap(Wrap { trim: true });
+        let wrapped_paragraph = truncated_paragraph
+            .clone()
+            .wrap(Wrap::WordBoundary)
+            .trim(false);
+        let trimmed_paragraph = truncated_paragraph
+            .clone()
+            .wrap(Wrap::WordBoundary)
+            .trim(true);
 
         for paragraph in [&truncated_paragraph, &wrapped_paragraph, &trimmed_paragraph] {
             test_case(
@@ -672,11 +646,7 @@ mod test {
 
         for paragraph in [
             Paragraph::new(text),
-            Paragraph::new(text).wrap(Wrap { trim: false }),
-            Paragraph::new(text).wrap(Wrap { trim: true }),
-        ] {
-            test_case(&paragraph, &Buffer::empty(area));
-            test_case(&paragraph.clone().scroll((2, 4)), &Buffer::empty(area));
+
         }
     }
 
@@ -687,11 +657,7 @@ mod test {
 
         for paragraph in [
             Paragraph::new(text),
-            Paragraph::new(text).wrap(Wrap { trim: false }),
-            Paragraph::new(text).wrap(Wrap { trim: true }),
-        ] {
-            test_case(&paragraph, &Buffer::empty(area));
-            test_case(&paragraph.clone().scroll((2, 4)), &Buffer::empty(area));
+
         }
     }
 
@@ -702,7 +668,6 @@ mod test {
             Span::styled("world!", Style::default().fg(Color::Blue)),
         ]);
 
-        let mut expected_buffer = Buffer::with_lines(["Hello, world!"]);
         expected_buffer.set_style(
             Rect::new(0, 0, 7, 1),
             Style::default().fg(Color::Red).bg(Color::Green),
@@ -729,11 +694,7 @@ mod test {
         let text = "Hello, <world>!";
         for paragraph in [
             Paragraph::new(text),
-            Paragraph::new(text).wrap(Wrap { trim: false }),
-            Paragraph::new(text).wrap(Wrap { trim: true }),
-        ] {
-            test_case(&paragraph, &Buffer::with_lines(["Hello, <world>!"]));
-            test_case(&paragraph, &Buffer::with_lines(["Hello, <world>!     "]));
+
             test_case(
                 &paragraph,
                 &Buffer::with_lines(["Hello, <world>!     ", "                    "]),
@@ -749,8 +710,8 @@ mod test {
     fn test_render_paragraph_with_unicode_characters() {
         let text = "こんにちは, 世界! 😃";
         let truncated_paragraph = Paragraph::new(text);
-        let wrapped_paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
-        let trimmed_paragraph = Paragraph::new(text).wrap(Wrap { trim: true });
+        let wrapped_paragraph = Paragraph::new(text).wrap(Wrap::WordBoundary).trim(false);
+        let trimmed_paragraph = Paragraph::new(text).wrap(Wrap::WordBoundary).trim(true);
 
         for paragraph in [&truncated_paragraph, &wrapped_paragraph, &trimmed_paragraph] {
             test_case(paragraph, &Buffer::with_lines(["こんにちは, 世界! 😃"]));

@@ -61,7 +61,6 @@ fn ui(f: &mut Frame, app: &App) {
         "Press p to show the popup"
     };
 
-
     if app.show_popup {
         let block = Block::bordered().title("Popup");
         let area = centered_rect(60, 20, area);

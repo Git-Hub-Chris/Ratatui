@@ -146,6 +146,6 @@ fn create_lines(area: Rect) -> Vec<Line<'static>> {
             "Masked text: ".into(),
             Span::styled(Masked::new("my secret password", '*'), Color::Red),
         ]),
-    ]
+
 }
 
