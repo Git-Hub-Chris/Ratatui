@@ -13,30 +13,26 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use std::{
-    io::{self},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
+use color_eyre::Result;
 use crossterm::event::KeyEventKind;
 use ratatui::{
+    backend::{Backend, CrosstermBackend},
     buffer::Buffer,
     crossterm::event::{self, Event, KeyCode},
     layout::{Constraint, Layout, Rect},
     style::{Color, Stylize},
     text::{Line, Masked, Span},
     widgets::{Block, Paragraph, Widget, Wrap},
+    Terminal,
 };
 
-use self::common::{init_terminal, install_hooks, restore_terminal, Tui};
-
-fn main() -> color_eyre::Result<()> {
-    install_hooks()?;
-    let mut terminal = init_terminal()?;
-    let mut app = App::new();
-    app.run(&mut terminal)?;
-    restore_terminal()?;
-    Ok(())
+fn main() -> Result<()> {
+    let terminal = CrosstermBackend::stdout_with_defaults()?
+        .with_mouse_capture()?
+        .to_terminal()?;
+    App::new().run(terminal)
 }
 
 #[derive(Debug)]
@@ -60,9 +56,9 @@ impl App {
     }
 
     /// Run the app until the user exits.
-    fn run(&mut self, terminal: &mut Tui) -> io::Result<()> {
+    fn run(mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         while !self.should_exit {
-            self.draw(terminal)?;
+            self.draw(&mut terminal)?;
             self.handle_events()?;
             if self.last_tick.elapsed() >= Self::TICK_RATE {
                 self.on_tick();
@@ -73,7 +69,7 @@ impl App {
     }
 
     /// Draw the app to the terminal.
-    fn draw(&mut self, terminal: &mut Tui) -> io::Result<()> {
+    fn draw(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
         terminal.draw(|frame| frame.render_widget(self, frame.size()))?;
         Ok(())
     }
@@ -153,10 +149,3 @@ fn create_lines(area: Rect) -> Vec<Line<'static>> {
     ]
 }
 
-/// A module for common functionality used in the examples.
-mod common {
-    use std::{
-        io::{self, stdout, Stdout},
-        panic,
-    
-}
