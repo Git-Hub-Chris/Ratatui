@@ -1,4 +1,5 @@
 use ratatui::{
+    assert_buffer_eq,
     backend::TestBackend,
     buffer::Buffer,
     layout::{Alignment, Rect},
@@ -289,7 +290,7 @@ fn widgets_block_title_alignment_top<'line, Lines>(
             .draw(|frame| frame.render_widget(block, area))
             .unwrap();
         terminal.backend().assert_buffer(&expected);
-    }
+
 }
 
 #[rstest]
