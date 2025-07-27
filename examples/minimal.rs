@@ -13,11 +13,11 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
+use color_eyre::Result;
 use ratatui::{
-    backend::CrosstermBackend,
+
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
     text::Text,
-    Terminal,
 };
 
 /// This is a bare minimum example. There are many approaches to running an application loop, so
@@ -26,17 +26,14 @@ use ratatui::{
 ///
 /// [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 /// [hello-world]: https://github.com/ratatui-org/ratatui/blob/main/examples/hello_world.rs
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let backend = CrosstermBackend::stdout()?;
-    let mut terminal = Terminal::new(backend)?;
+
     terminal.clear()?;
     loop {
         terminal.draw(|frame| frame.render_widget(Text::raw("Hello World!"), frame.size()))?;
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                break;
+                return Ok(());
             }
         }
     }
-    Ok(())
 }

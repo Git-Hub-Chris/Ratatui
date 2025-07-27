@@ -28,6 +28,7 @@ rust-version = "1.74.0"
 bitflags = "2.3"
 cassowary = "0.3"
 compact_str = "0.7.1"
+color-eyre = { version = "0.6.2", optional = true }
 crossterm = { version = "0.27", optional = true }
 document-features = { version = "0.2.7", optional = true }
 itertools = "0.13"
@@ -109,7 +110,7 @@ use_self = "warn"
 ## By default, we enable the crossterm backend as this is a reasonable choice for most applications
 ## as it is supported on Linux/Mac/Windows systems. We also enable the `underline-color` feature
 ## which allows you to set the underline color of text.
-default = ["crossterm", "underline-color"]
+default = ["crossterm", "underline-color", "color-eyre"]
 #! Generally an application will only use one backend, so you should only enable one of the following features:
 ## enables the [`CrosstermBackend`](backend::CrosstermBackend) backend and adds a dependency on [`crossterm`].
 crossterm = ["dep:crossterm"]
@@ -119,6 +120,12 @@ termion = ["dep:termion"]
 termwiz = ["dep:termwiz"]
 
 #! The following optional features are available for all backends:
+
+## enables the [`color-eyre`](color_eyre) crate which provides a better error handling experience.
+## See [`CrosstermBackend::with_color_eyre_hooks`](crate::backend::CrosstermBackend::with_color_eyre_hooks)
+## for more details.
+color-eyre = ["dep:color-eyre"]
+
 ## enables serialization and deserialization of style and color types using the [`serde`] crate.
 ## This is useful if you want to save themes to a file.
 serde = ["dep:serde", "bitflags/serde", "compact_str/serde"]
@@ -158,6 +165,9 @@ unstable-rendered-line-info = []
 ## Enables the [`WidgetRef`](widgets::WidgetRef) and [`StatefulWidgetRef`](widgets::StatefulWidgetRef) traits which are experimental and may change in
 ## the future.
 unstable-widget-ref = []
+
+## Enables the `WidgetExt` trait which is experimental and may change in the future.
+unstable-widget-ext = []
 
 [package.metadata.docs.rs]
 all-features = true
@@ -199,8 +209,8 @@ harness = false
 
 
 [[example]]
-name = "barchart"
-required-features = ["crossterm"]
+name = "ansi_buffer"
+required-features = ["unstable-widget-ext", "unstable-widget-ref"]
 doc-scrape-examples = true
 
 [[example]]
@@ -365,6 +375,7 @@ doc-scrape-examples = true
 name = "user_input"
 required-features = ["crossterm"]
 doc-scrape-examples = true
+
 
 [[test]]
 name = "state_serde"

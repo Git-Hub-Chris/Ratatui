@@ -634,7 +634,7 @@ impl Block<'_> {
     fn render_left_side(&self, area: Rect, buf: &mut Buffer) {
         if self.borders.contains(Borders::LEFT) {
             for y in area.top()..area.bottom() {
-                buf.get_mut(area.left(), y)
+                buf[(area.left(), y)]
                     .set_symbol(self.border_set.vertical_left)
                     .set_style(self.border_style);
             }
@@ -644,7 +644,7 @@ impl Block<'_> {
     fn render_top_side(&self, area: Rect, buf: &mut Buffer) {
         if self.borders.contains(Borders::TOP) {
             for x in area.left()..area.right() {
-                buf.get_mut(x, area.top())
+                buf[(x, area.top())]
                     .set_symbol(self.border_set.horizontal_top)
                     .set_style(self.border_style);
             }
@@ -655,7 +655,7 @@ impl Block<'_> {
         if self.borders.contains(Borders::RIGHT) {
             let x = area.right() - 1;
             for y in area.top()..area.bottom() {
-                buf.get_mut(x, y)
+                buf[(x, y)]
                     .set_symbol(self.border_set.vertical_right)
                     .set_style(self.border_style);
             }
@@ -666,7 +666,7 @@ impl Block<'_> {
         if self.borders.contains(Borders::BOTTOM) {
             let y = area.bottom() - 1;
             for x in area.left()..area.right() {
-                buf.get_mut(x, y)
+                buf[(x, y)]
                     .set_symbol(self.border_set.horizontal_bottom)
                     .set_style(self.border_style);
             }
@@ -675,7 +675,7 @@ impl Block<'_> {
 
     fn render_bottom_right_corner(&self, buf: &mut Buffer, area: Rect) {
         if self.borders.contains(Borders::RIGHT | Borders::BOTTOM) {
-            buf.get_mut(area.right() - 1, area.bottom() - 1)
+            buf[(area.right() - 1, area.bottom() - 1)]
                 .set_symbol(self.border_set.bottom_right)
                 .set_style(self.border_style);
         }
@@ -683,7 +683,7 @@ impl Block<'_> {
 
     fn render_top_right_corner(&self, buf: &mut Buffer, area: Rect) {
         if self.borders.contains(Borders::RIGHT | Borders::TOP) {
-            buf.get_mut(area.right() - 1, area.top())
+            buf[(area.right() - 1, area.top())]
                 .set_symbol(self.border_set.top_right)
                 .set_style(self.border_style);
         }
@@ -691,7 +691,7 @@ impl Block<'_> {
 
     fn render_bottom_left_corner(&self, buf: &mut Buffer, area: Rect) {
         if self.borders.contains(Borders::LEFT | Borders::BOTTOM) {
-            buf.get_mut(area.left(), area.bottom() - 1)
+            buf[(area.left(), area.bottom() - 1)]
                 .set_symbol(self.border_set.bottom_left)
                 .set_style(self.border_style);
         }
@@ -699,7 +699,7 @@ impl Block<'_> {
 
     fn render_top_left_corner(&self, buf: &mut Buffer, area: Rect) {
         if self.borders.contains(Borders::LEFT | Borders::TOP) {
-            buf.get_mut(area.left(), area.top())
+            buf[(area.left(), area.top())]
                 .set_symbol(self.border_set.top_left)
                 .set_style(self.border_style);
         }

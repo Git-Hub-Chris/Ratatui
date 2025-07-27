@@ -1,4 +1,5 @@
 use ratatui::{
+    assert_buffer_eq,
     backend::TestBackend,
     buffer::Buffer,
     layout::{Alignment, Rect},
@@ -34,7 +35,7 @@ fn widgets_block_renders() {
         "          ",
     ]);
     for x in 1..=5 {
-        expected.get_mut(x, 0).set_fg(Color::LightBlue);
+        expected[(x, 0)].set_fg(Color::LightBlue);
     }
     terminal.backend().assert_buffer(&expected);
 }
@@ -289,7 +290,7 @@ fn widgets_block_title_alignment_top<'line, Lines>(
             .draw(|frame| frame.render_widget(block, area))
             .unwrap();
         terminal.backend().assert_buffer(&expected);
-    }
+
 }
 
 #[rstest]

@@ -854,7 +854,7 @@ impl Widget for List<'_> {
 impl WidgetRef for List<'_> {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let mut state = ListState::default();
-        StatefulWidgetRef::render_ref(self, area, buf, &mut state);
+        self.render_stateful_ref(area, buf, &mut state);
     }
 }
 
@@ -862,22 +862,23 @@ impl StatefulWidget for List<'_> {
     type State = ListState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        StatefulWidgetRef::render_ref(&self, area, buf, state);
+
     }
 }
 
 // Note: remove this when StatefulWidgetRef is stabilized and replace with the blanket impl
 impl StatefulWidget for &List<'_> {
     type State = ListState;
+
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        StatefulWidgetRef::render_ref(self, area, buf, state);
+
     }
 }
 
 impl StatefulWidgetRef for List<'_> {
     type State = ListState;
 
-    fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+    fn render_stateful_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         buf.set_style(area, self.style);
         self.block.render_ref(area, buf);
         let list_area = self.block.inner_if_some(area);
@@ -1162,7 +1163,7 @@ mod tests {
         height: u16,
     ) -> Buffer {
         let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
-        StatefulWidget::render(widget, buffer.area, &mut buffer, state);
+        widget.render_stateful(buffer.area, &mut buffer, state);
         buffer
     }
 
@@ -1222,7 +1223,7 @@ mod tests {
             let list = List::new(items.to_owned()).highlight_symbol(">>");
             let mut state = ListState::default().with_selected(selected);
             let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 5));
-            StatefulWidget::render(list, buffer.area, &mut buffer, &mut state);
+            list.render_stateful(buffer.area, &mut buffer, &mut state);
             assert_eq!(buffer, Buffer::with_lines(expected));
         }
 
@@ -2121,7 +2122,7 @@ mod tests {
         let list = List::new([item]).highlight_symbol(highlight_symbol);
         let mut state = ListState::default();
         state.select(Some(0));
-        StatefulWidget::render(list, single_line_buf.area, &mut single_line_buf, &mut state);
+        list.render_stateful(single_line_buf.area, &mut single_line_buf, &mut state);
         assert_eq!(single_line_buf, Buffer::with_lines([expected]));
     }
 }
