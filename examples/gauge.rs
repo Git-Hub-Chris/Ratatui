@@ -13,20 +13,18 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-#![allow(clippy::enum_glob_use)]
+use std::time::Duration;
 
-use std::{io::stdout, time::Duration};
-
-use color_eyre::{config::HookBuilder, Result};
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
-};
+use color_eyre::Result;
 use ratatui::{
-    prelude::*,
-    style::palette::tailwind,
-    widgets::{block::Title, Block, Borders, Gauge, Padding, Paragraph},
+    backend::{Backend, CrosstermBackend},
+    buffer::Buffer,
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{palette::tailwind, Color, Style, Stylize},
+    terminal::Terminal,
+    text::Span,
+    widgets::{block::Title, Block, Borders, Gauge, Padding, Paragraph, Widget},
 };
 
 const GAUGE1_COLOR: Color = tailwind::RED.c800;
@@ -54,15 +52,12 @@ enum AppState {
 }
 
 fn main() -> Result<()> {
-    init_error_hooks()?;
-    let terminal = init_terminal()?;
-    App::default().run(terminal)?;
-    restore_terminal()?;
-    Ok(())
+    let terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
+    App::default().run(terminal)
 }
 
 impl App {
-    fn run(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
+    fn run(mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         while self.state != AppState::Quitting {
             self.draw(&mut terminal)?;
             self.handle_events()?;
@@ -99,10 +94,9 @@ impl App {
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    use KeyCode::*;
                     match key.code {
-                        Char(' ') | Enter => self.start(),
-                        Char('q') | Esc => self.quit(),
+                        KeyCode::Char(' ') | KeyCode::Enter => self.start(),
+                        KeyCode::Char('q') | KeyCode::Esc => self.quit(),
                         _ => {}
                     }
                 }
@@ -123,7 +117,7 @@ impl App {
 impl Widget for &App {
     #[allow(clippy::similar_names)]
     fn render(self, area: Rect, buf: &mut Buffer) {
-        use Constraint::*;
+        use Constraint::{Length, Min, Ratio};
         let layout = Layout::vertical([Length(2), Min(0), Length(1)]);
         let [header_area, gauge_area, footer_area] = layout.areas(area);
 
@@ -211,33 +205,4 @@ fn title_block(title: &str) -> Block {
         .padding(Padding::vertical(1))
         .title(title)
         .fg(CUSTOM_LABEL_COLOR)
-}
-
-fn init_error_hooks() -> color_eyre::Result<()> {
-    let (panic, error) = HookBuilder::default().into_hooks();
-    let panic = panic.into_panic_hook();
-    let error = error.into_eyre_hook();
-    color_eyre::eyre::set_hook(Box::new(move |e| {
-        let _ = restore_terminal();
-        error(e)
-    }))?;
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal();
-        panic(info);
-    }));
-    Ok(())
-}
-
-fn init_terminal() -> color_eyre::Result<Terminal<impl Backend>> {
-    enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout());
-    let terminal = Terminal::new(backend)?;
-    Ok(terminal)
-}
-
-fn restore_terminal() -> color_eyre::Result<()> {
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
-    Ok(())
 }

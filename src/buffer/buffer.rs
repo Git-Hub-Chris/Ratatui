@@ -1,9 +1,9 @@
-use std::fmt;
+use std::{fmt, ops};
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::{buffer::Cell, prelude::*};
+use crate::{buffer::Cell, layout::Position, prelude::*};
 
 /// A buffer that maps to the desired content of the terminal after the draw call
 ///
@@ -23,8 +23,8 @@ use crate::{buffer::Cell, prelude::*};
 ///     width: 10,
 ///     height: 5,
 /// });
-/// buf.get_mut(0, 2).set_symbol("x");
-/// assert_eq!(buf.get(0, 2).symbol(), "x");
+/// buf[(0, 2)].set_symbol("x");
+/// assert_eq!(buf[(0, 2)].symbol(), "x");
 ///
 /// buf.set_string(
 ///     3,
@@ -32,13 +32,13 @@ use crate::{buffer::Cell, prelude::*};
 ///     "string",
 ///     Style::default().fg(Color::Red).bg(Color::White),
 /// );
-/// let cell = buf.get(5, 0);
+/// let cell = &buf[(5, 0)];
 /// assert_eq!(cell.symbol(), "r");
 /// assert_eq!(cell.fg, Color::Red);
 /// assert_eq!(cell.bg, Color::White);
 ///
-/// buf.get_mut(5, 0).set_char('x');
-/// assert_eq!(buf.get(5, 0).symbol(), "x");
+/// buf[(5, 0)].set_char('x');
+/// assert_eq!(buf[(5, 0)].symbol(), "x");
 /// ```
 #[derive(Default, Clone, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -54,14 +54,14 @@ impl Buffer {
     /// Returns a Buffer with all cells set to the default one
     #[must_use]
     pub fn empty(area: Rect) -> Self {
-        Self::filled(area, &Cell::default())
+        Self::filled(area, Cell::EMPTY)
     }
 
     /// Returns a Buffer with all cells initialized with the attributes of the given Cell
     #[must_use]
-    pub fn filled(area: Rect, cell: &Cell) -> Self {
+    pub fn filled(area: Rect, cell: Cell) -> Self {
         let size = area.area() as usize;
-        let content = vec![cell.clone(); size];
+        let content = vec![cell; size];
         Self { area, content }
     }
 
@@ -93,17 +93,88 @@ impl Buffer {
     }
 
     /// Returns a reference to Cell at the given coordinates
+    ///
+    /// Callers should generally use the [`ops::Index`] trait ([`Buffer[Position]`]) or the
+    /// [`Buffer::cell`] method instead of this method.
+    ///
+    /// Note that conventionally methods named `get` usually return `Option<&T>`, but this method
+    /// panics instead. This is kept for backwards compatibility. See `get_opt` for a safe
+    /// alternative.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
     #[track_caller]
+    #[deprecated(note = "Use Buffer[] or Buffer::cell instead")]
     pub fn get(&self, x: u16, y: u16) -> &Cell {
         let i = self.index_of(x, y);
         &self.content[i]
     }
 
     /// Returns a mutable reference to Cell at the given coordinates
+    ///
+    /// Callers should generally use the [`ops::IndexMut`] trait (`&mut Buffer[Position]`) or the
+    /// [`Buffer::cell_mut`] method instead of this method.
+    ///
+    /// Note that conventionally methods named `get_mut` usually return `Option<&mut T>`, but this
+    /// method panics instead. This is kept for backwards compatibility. See `cell_mut` for a safe
+    /// alternative.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
     #[track_caller]
+    #[deprecated(note = "Use Buffer[] or Buffer::cell_mut instead")]
     pub fn get_mut(&mut self, x: u16, y: u16) -> &mut Cell {
         let i = self.index_of(x, y);
         &mut self.content[i]
+    }
+
+    /// Returns a reference to Cell at the given coordinates.
+    ///
+    /// Returns `None` if the index is out of bounds.
+    ///
+    /// Note that unlike `get`, this method accepts a `Position` instead of `x` and `y` coordinates.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::{prelude::*, buffer::Cell, layout::Position};
+    /// let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 10));
+    ///
+    /// assert_eq!(buffer.cell(Position::new(0, 0)), Some(&Cell::default()));
+    /// assert_eq!(buffer.cell(Position::new(10, 10)), None);
+    /// assert_eq!(buffer.cell((0, 0)), Some(&Cell::default()));
+    /// assert_eq!(buffer.cell((10, 10)), None);
+    /// ```
+    pub fn cell<P: Into<Position>>(&self, pos: P) -> Option<&Cell> {
+        let pos = pos.into();
+        let index = self.index_of_opt(pos.x, pos.y)?;
+        self.content.get(index)
+    }
+
+    /// Returns a mutable reference to Cell at the given coordinates
+    ///
+    /// Returns `None` if the index is out of bounds.
+    ///
+    /// Note that unlike `get`, this method accepts a `Position` instead of `x` and `y` coordinates.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::{prelude::*, buffer::Cell, layout::Position};
+    /// let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 10));
+    /// if let Some(cell) = buffer.cell_mut(Position::new(0, 0)) {
+    ///     *cell = Cell::default();
+    /// }
+    /// if let Some(cell) = buffer.cell_mut((0, 0)) {
+    ///     *cell = Cell::default();
+    /// }
+    /// ```
+    pub fn cell_mut<P: Into<Position>>(&mut self, pos: P) -> Option<&mut Cell> {
+        let pos = pos.into();
+        let index = self.index_of_opt(pos.x, pos.y)?;
+        self.content.get_mut(index)
     }
 
     /// Returns the index in the `Vec<Cell>` for the given global (x, y) coordinates.
@@ -114,8 +185,7 @@ impl Buffer {
     ///
     /// ```
     /// # use ratatui::prelude::*;
-    /// let rect = Rect::new(200, 100, 10, 10);
-    /// let buffer = Buffer::empty(rect);
+    /// let buffer = Buffer::empty(Rect::new(200, 100, 10, 10));
     /// // Global coordinates to the top corner of this buffer's area
     /// assert_eq!(buffer.index_of(200, 100), 0);
     /// ```
@@ -126,23 +196,35 @@ impl Buffer {
     ///
     /// ```should_panic
     /// # use ratatui::prelude::*;
-    /// let rect = Rect::new(200, 100, 10, 10);
-    /// let buffer = Buffer::empty(rect);
+    /// let buffer = Buffer::empty(Rect::new(200, 100, 10, 10));
     /// // Top coordinate is outside of the buffer in global coordinate space, as the Buffer's area
     /// // starts at (200, 100).
     /// buffer.index_of(0, 0); // Panics
     /// ```
     #[track_caller]
     pub fn index_of(&self, x: u16, y: u16) -> usize {
-        debug_assert!(
-            x >= self.area.left()
-                && x < self.area.right()
-                && y >= self.area.top()
-                && y < self.area.bottom(),
-            "Trying to access position outside the buffer: x={x}, y={y}, area={:?}",
-            self.area
-        );
-        ((y - self.area.y) * self.area.width + (x - self.area.x)) as usize
+        self.index_of_opt(x, y).unwrap_or_else(|| {
+            panic!(
+                "index outside of buffer: the area is {area:?} but index is ({x}, {y})",
+                area = self.area,
+            )
+        })
+    }
+
+    /// Returns the index in the `Vec<Cell>` for the given global (x, y) coordinates.
+    ///
+    /// Returns `None` if the given coordinates are outside of the Buffer's area.
+    ///
+    /// Note that this is private because of <https://github.com/ratatui-org/ratatui/issues/1122>
+    const fn index_of_opt(&self, x: u16, y: u16) -> Option<usize> {
+        let area = self.area;
+        if x < area.left() || x >= area.right() || y < area.top() || y >= area.bottom() {
+            return None;
+        }
+        // remove offset
+        let y = y - self.area.y;
+        let x = x - self.area.x;
+        Some((y * self.area.width + x) as usize)
     }
 
     /// Returns the (global) coordinates of a cell given its index
@@ -218,12 +300,12 @@ impl Buffer {
             });
         let style = style.into();
         for (symbol, width) in graphemes {
-            self.get_mut(x, y).set_symbol(symbol).set_style(style);
+            self[(x, y)].set_symbol(symbol).set_style(style);
             let next_symbol = x + width;
             x += 1;
             // Reset following cells if multi-width (they would be hidden by the grapheme),
             while x < next_symbol {
-                self.get_mut(x, y).reset();
+                self[(x, y)].reset();
                 x += 1;
             }
         }
@@ -266,7 +348,7 @@ impl Buffer {
         let area = self.area.intersection(area);
         for y in area.top()..area.bottom() {
             for x in area.left()..area.right() {
-                self.get_mut(x, y).set_style(style);
+                self[(x, y)].set_style(style);
             }
         }
     }
@@ -278,22 +360,22 @@ impl Buffer {
         if self.content.len() > length {
             self.content.truncate(length);
         } else {
-            self.content.resize(length, Cell::default());
+            self.content.resize(length, Cell::EMPTY);
         }
         self.area = area;
     }
 
     /// Reset all cells in the buffer
     pub fn reset(&mut self) {
-        for c in &mut self.content {
-            c.reset();
+        for cell in &mut self.content {
+            cell.reset();
         }
     }
 
     /// Merge an other buffer into this one
     pub fn merge(&mut self, other: &Self) {
         let area = self.area.union(other.area);
-        self.content.resize(area.area() as usize, Cell::default());
+        self.content.resize(area.area() as usize, Cell::EMPTY);
 
         // Move original content to the appropriate space
         let size = self.area.area() as usize;
@@ -303,7 +385,7 @@ impl Buffer {
             let k = ((y - area.y) * area.width + x - area.x) as usize;
             if i != k {
                 self.content[k] = self.content[i].clone();
-                self.content[i] = Cell::default();
+                self.content[i].reset();
             }
         }
 
@@ -369,6 +451,52 @@ impl Buffer {
             invalidated = std::cmp::max(affected_width, invalidated).saturating_sub(1);
         }
         updates
+    }
+}
+
+impl<P: Into<Position>> ops::Index<P> for Buffer {
+    type Output = Cell;
+
+    /// Returns the Cell at the given position
+    ///
+    /// # Panics
+    ///
+    /// May panic if the given position is outside the buffer's area.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ratatui::{prelude::*, buffer::Cell, layout::Position};
+    /// let buf = Buffer::empty(Rect::new(0, 0, 10, 10));
+    /// let cell = &buf[(0, 0)];
+    /// let cell = &buf[Position::new(0, 0)];
+    /// ```
+    fn index(&self, pos: P) -> &Self::Output {
+        let pos = pos.into();
+        let index = self.index_of(pos.x, pos.y);
+        &self.content[index]
+    }
+}
+
+impl<P: Into<Position>> ops::IndexMut<P> for Buffer {
+    /// Returns a mutable reference to the Cell at the given position
+    ///
+    /// # Panics
+    ///
+    /// May panic if the given position is outside the buffer's area.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ratatui::{prelude::*, buffer::Cell, layout::Position};
+    /// let mut buf = Buffer::empty(Rect::new(0, 0, 10, 10));
+    /// buf[(0, 0)].set_symbol("A");
+    /// buf[Position::new(0, 0)].set_symbol("B");
+    /// ```
+    fn index_mut(&mut self, pos: P) -> &mut Self::Output {
+        let pos = pos.into();
+        let index = self.index_of(pos.x, pos.y);
+        &mut self.content[index]
     }
 }
 
@@ -452,12 +580,6 @@ mod tests {
     use rstest::{fixture, rstest};
 
     use super::*;
-
-    fn cell(s: &str) -> Cell {
-        let mut cell = Cell::default();
-        cell.set_symbol(s);
-        cell
-    }
 
     #[test]
     fn debug_empty_buffer() {
@@ -562,14 +684,87 @@ mod tests {
         buf.pos_of(100);
     }
 
-    #[test]
-    #[should_panic(expected = "outside the buffer")]
-    fn index_of_panics_on_out_of_bounds() {
-        let rect = Rect::new(0, 0, 10, 10);
-        let buf = Buffer::empty(rect);
+    #[rstest]
+    #[case::left(9, 10)]
+    #[case::top(10, 9)]
+    #[case::right(20, 10)]
+    #[case::bottom(10, 20)]
+    #[should_panic(
+        expected = "index outside of buffer: the area is Rect { x: 10, y: 10, width: 10, height: 10 } but index is"
+    )]
+    fn index_of_panics_on_out_of_bounds(#[case] x: u16, #[case] y: u16) {
+        let _ = Buffer::empty(Rect::new(10, 10, 10, 10)).index_of(x, y);
+    }
 
-        // width is 10; zero-indexed means that 10 would be the 11th cell.
-        buf.index_of(10, 0);
+    #[test]
+    fn test_cell() {
+        let buf = Buffer::with_lines(["Hello", "World"]);
+
+        let mut expected = Cell::default();
+        expected.set_symbol("H");
+
+        assert_eq!(buf.cell((0, 0)), Some(&expected));
+        assert_eq!(buf.cell((10, 10)), None);
+        assert_eq!(buf.cell(Position::new(0, 0)), Some(&expected));
+        assert_eq!(buf.cell(Position::new(10, 10)), None);
+    }
+
+    #[test]
+    fn test_cell_mut() {
+        let mut buf = Buffer::with_lines(["Hello", "World"]);
+
+        let mut expected = Cell::default();
+        expected.set_symbol("H");
+
+        assert_eq!(buf.cell_mut((0, 0)), Some(&mut expected));
+        assert_eq!(buf.cell_mut((10, 10)), None);
+        assert_eq!(buf.cell_mut(Position::new(0, 0)), Some(&mut expected));
+        assert_eq!(buf.cell_mut(Position::new(10, 10)), None);
+    }
+
+    #[test]
+    fn index() {
+        let buf = Buffer::with_lines(["Hello", "World"]);
+
+        let mut expected = Cell::default();
+        expected.set_symbol("H");
+
+        assert_eq!(buf[(0, 0)], expected);
+    }
+
+    #[rstest]
+    #[case::left(9, 10)]
+    #[case::top(10, 9)]
+    #[case::right(20, 10)]
+    #[case::bottom(10, 20)]
+    #[should_panic(
+        expected = "index outside of buffer: the area is Rect { x: 10, y: 10, width: 10, height: 10 } but index is"
+    )]
+    fn index_out_of_bounds_panics(#[case] x: u16, #[case] y: u16) {
+        let rect = Rect::new(10, 10, 10, 10);
+        let buf = Buffer::empty(rect);
+        let _ = buf[(x, y)];
+    }
+
+    #[test]
+    fn index_mut() {
+        let mut buf = Buffer::with_lines(["Cat", "Dog"]);
+        buf[(0, 0)].set_symbol("B");
+        buf[Position::new(0, 1)].set_symbol("L");
+        assert_eq!(buf, Buffer::with_lines(["Bat", "Log"]));
+    }
+
+    #[rstest]
+    #[case::left(9, 10)]
+    #[case::top(10, 9)]
+    #[case::right(20, 10)]
+    #[case::bottom(10, 20)]
+    #[should_panic(
+        expected = "index outside of buffer: the area is Rect { x: 10, y: 10, width: 10, height: 10 } but index is"
+    )]
+    fn index_mut_out_of_bounds_panics(#[case] x: u16, #[case] y: u16) {
+        let mut buf = Buffer::empty(Rect::new(10, 10, 10, 10));
+        buf[(x, y)].set_symbol("A");
     }
 
     #[test]
@@ -615,16 +810,18 @@ mod tests {
 
     #[test]
     fn set_string_zero_width() {
+        assert_eq!("\u{200B}".width(), 0);
+
         let area = Rect::new(0, 0, 1, 1);
         let mut buffer = Buffer::empty(area);
 
         // Leading grapheme with zero width
-        let s = "\u{1}a";
+        let s = "\u{200B}a";
         buffer.set_stringn(0, 0, s, 1, Style::default());
         assert_eq!(buffer, Buffer::with_lines(["a"]));
 
         // Trailing grapheme with zero with
-        let s = "a\u{1}";
+        let s = "a\u{200B}";
         buffer.set_stringn(0, 0, s, 1, Style::default());
         assert_eq!(buffer, Buffer::with_lines(["a"]));
     }
@@ -749,14 +946,14 @@ mod tests {
         let prev = Buffer::empty(area);
         let next = Buffer::empty(area);
         let diff = prev.diff(&next);
-        assert_eq!(diff, vec![]);
+        assert_eq!(diff, []);
     }
 
     #[test]
     fn diff_empty_filled() {
         let area = Rect::new(0, 0, 40, 40);
         let prev = Buffer::empty(area);
-        let next = Buffer::filled(area, Cell::default().set_symbol("a"));
+        let next = Buffer::filled(area, Cell::new("a"));
         let diff = prev.diff(&next);
         assert_eq!(diff.len(), 40 * 40);
     }
@@ -764,10 +961,10 @@ mod tests {
     #[test]
     fn diff_filled_filled() {
         let area = Rect::new(0, 0, 40, 40);
-        let prev = Buffer::filled(area, Cell::default().set_symbol("a"));
-        let next = Buffer::filled(area, Cell::default().set_symbol("a"));
+        let prev = Buffer::filled(area, Cell::new("a"));
+        let next = Buffer::filled(area, Cell::new("a"));
         let diff = prev.diff(&next);
-        assert_eq!(diff, vec![]);
+        assert_eq!(diff, []);
     }
 
     #[test]
@@ -789,22 +986,23 @@ mod tests {
         let diff = prev.diff(&next);
         assert_eq!(
             diff,
-            vec![
-                (2, 1, &cell("I")),
-                (3, 1, &cell("T")),
-                (4, 1, &cell("L")),
-                (5, 1, &cell("E")),
+            [
+                (2, 1, &Cell::new("I")),
+                (3, 1, &Cell::new("T")),
+                (4, 1, &Cell::new("L")),
+                (5, 1, &Cell::new("E")),
             ]
         );
     }
 
     #[test]
-    #[rustfmt::skip]
     fn diff_multi_width() {
+        #[rustfmt::skip]
         let prev = Buffer::with_lines([
             "┌Title─┐  ",
             "└──────┘  ",
         ]);
+        #[rustfmt::skip]
         let next = Buffer::with_lines([
             "┌称号──┐  ",
             "└──────┘  ",
@@ -812,12 +1010,12 @@ mod tests {
         let diff = prev.diff(&next);
         assert_eq!(
             diff,
-            vec![
-                (1, 0, &cell("称")),
+            [
+                (1, 0, &Cell::new("称")),
                 // Skipped "i"
-                (3, 0, &cell("号")),
+                (3, 0, &Cell::new("号")),
                 // Skipped "l"
-                (5, 0, &cell("─")),
+                (5, 0, &Cell::new("─")),
             ]
         );
     }
@@ -830,7 +1028,11 @@ mod tests {
         let diff = prev.diff(&next);
         assert_eq!(
             diff,
-            vec![(1, 0, &cell("─")), (2, 0, &cell("称")), (4, 0, &cell("号")),]
+            [
+                (1, 0, &Cell::new("─")),
+                (2, 0, &Cell::new("称")),
+                (4, 0, &Cell::new("号")),
+            ]
         );
     }
 
@@ -843,59 +1045,25 @@ mod tests {
         }
 
         let diff = prev.diff(&next);
-        assert_eq!(diff, vec![(0, 0, &cell("4"))],);
+        assert_eq!(diff, [(0, 0, &Cell::new("4"))],);
     }
 
-    #[test]
-    fn merge() {
-        let mut one = Buffer::filled(
-            Rect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("1"),
-        );
-        let two = Buffer::filled(
-            Rect {
-                x: 0,
-                y: 2,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("2"),
-        );
+    #[rstest]
+    #[case(Rect::new(0, 0, 2, 2), Rect::new(0, 2, 2, 2), ["11", "11", "22", "22"])]
+    #[case(Rect::new(2, 2, 2, 2), Rect::new(0, 0, 2, 2), ["22  ", "22  ", "  11", "  11"])]
+    fn merge<'line, Lines>(#[case] one: Rect, #[case] two: Rect, #[case] expected: Lines)
+    where
+        Lines: IntoIterator,
+        Lines::Item: Into<Line<'line>>,
+    {
+        let mut one = Buffer::filled(one, Cell::new("1"));
+        let two = Buffer::filled(two, Cell::new("2"));
         one.merge(&two);
-        assert_eq!(one, Buffer::with_lines(["11", "11", "22", "22"]));
+        assert_eq!(one, Buffer::with_lines(expected));
     }
 
     #[test]
-    fn merge2() {
-        let mut one = Buffer::filled(
-            Rect {
-                x: 2,
-                y: 2,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("1"),
-        );
-        let two = Buffer::filled(
-            Rect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("2"),
-        );
-        one.merge(&two);
-        assert_eq!(one, Buffer::with_lines(["22  ", "22  ", "  11", "  11"]));
-    }
-
-    #[test]
-    fn merge3() {
+    fn merge_with_offset() {
         let mut one = Buffer::filled(
             Rect {
                 x: 3,
@@ -903,7 +1071,7 @@ mod tests {
                 width: 2,
                 height: 2,
             },
-            Cell::default().set_symbol("1"),
+            Cell::new("1"),
         );
         let two = Buffer::filled(
             Rect {
@@ -912,67 +1080,48 @@ mod tests {
                 width: 3,
                 height: 4,
             },
-            Cell::default().set_symbol("2"),
+            Cell::new("2"),
         );
         one.merge(&two);
-        let mut merged = Buffer::with_lines(["222 ", "222 ", "2221", "2221"]);
-        merged.area = Rect {
+        let mut expected = Buffer::with_lines(["222 ", "222 ", "2221", "2221"]);
+        expected.area = Rect {
             x: 1,
             y: 1,
             width: 4,
             height: 4,
         };
-        assert_eq!(one, merged);
+        assert_eq!(one, expected);
     }
 
-    #[test]
-    fn merge_skip() {
-        let mut one = Buffer::filled(
-            Rect {
+    #[rstest]
+    #[case(false, true, [false, false, true, true, true, true])]
+    #[case(true, false, [true, true, false, false, false, false])]
+    fn merge_skip(#[case] skip_one: bool, #[case] skip_two: bool, #[case] expected: [bool; 6]) {
+        let mut one = {
+            let area = Rect {
                 x: 0,
                 y: 0,
                 width: 2,
                 height: 2,
-            },
-            Cell::default().set_symbol("1"),
-        );
-        let two = Buffer::filled(
-            Rect {
+            };
+            let mut cell = Cell::new("1");
+            cell.skip = skip_one;
+            Buffer::filled(area, cell)
+        };
+        let two = {
+            let area = Rect {
                 x: 0,
                 y: 1,
                 width: 2,
                 height: 2,
-            },
-            Cell::default().set_symbol("2").set_skip(true),
-        );
+            };
+            let mut cell = Cell::new("2");
+            cell.skip = skip_two;
+            Buffer::filled(area, cell)
+        };
         one.merge(&two);
-        let skipped: Vec<bool> = one.content().iter().map(|c| c.skip).collect();
-        assert_eq!(skipped, vec![false, false, true, true, true, true]);
-    }
-
-    #[test]
-    fn merge_skip2() {
-        let mut one = Buffer::filled(
-            Rect {
-                x: 0,
-                y: 0,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("1").set_skip(true),
-        );
-        let two = Buffer::filled(
-            Rect {
-                x: 0,
-                y: 1,
-                width: 2,
-                height: 2,
-            },
-            Cell::default().set_symbol("2"),
-        );
-        one.merge(&two);
-        let skipped: Vec<bool> = one.content().iter().map(|c| c.skip).collect();
-        assert_eq!(skipped, vec![true, true, false, false, false, false]);
+        let skipped = one.content().iter().map(|c| c.skip).collect::<Vec<_>>();
+        assert_eq!(skipped, expected);
     }
 
     #[test]

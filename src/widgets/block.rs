@@ -8,7 +8,7 @@
 use itertools::Itertools;
 use strum::{Display, EnumString};
 
-use crate::{prelude::*, symbols::border, widgets::Borders};
+use crate::{prelude::*, style::Styled, symbols::border, widgets::Borders};
 
 mod padding;
 pub mod title;
@@ -53,7 +53,10 @@ pub use title::{Position, Title};
 /// ```
 /// use ratatui::{
 ///     prelude::*,
-///     widgets::{block::*, *},
+///     widgets::{
+///         block::{Position, Title},
+///         Block,
+///     },
 /// };
 ///
 /// Block::new()
@@ -168,7 +171,7 @@ impl<'a> Block<'a> {
             border_style: Style::new(),
             border_set: BorderType::Plain.to_border_set(),
             style: Style::new(),
-            padding: Padding::zero(),
+            padding: Padding::ZERO,
         }
     }
 
@@ -354,7 +357,10 @@ impl<'a> Block<'a> {
     /// ```
     /// use ratatui::{
     ///     prelude::*,
-    ///     widgets::{block::*, *},
+    ///     widgets::{
+    ///         block::{Position, Title},
+    ///         Block,
+    ///     },
     /// };
     ///
     /// Block::new()
@@ -469,6 +475,38 @@ impl<'a> Block<'a> {
         self
     }
 
+    /// Defines the padding inside a `Block`.
+    ///
+    /// See [`Padding`] for more information.
+    ///
+    /// # Examples
+    ///
+    /// This renders a `Block` with no padding (the default).
+    /// ```
+    /// # use ratatui::{prelude::*, widgets::*};
+    /// Block::bordered().padding(Padding::ZERO);
+    /// // Renders
+    /// // ┌───────┐
+    /// // │content│
+    /// // └───────┘
+    /// ```
+    ///
+    /// This example shows a `Block` with padding left and right ([`Padding::horizontal`]).
+    /// Notice the two spaces before and after the content.
+    /// ```
+    /// # use ratatui::{prelude::*, widgets::*};
+    /// Block::bordered().padding(Padding::horizontal(2));
+    /// // Renders
+    /// // ┌───────────┐
+    /// // │  content  │
+    /// // └───────────┘
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn padding(mut self, padding: Padding) -> Self {
+        self.padding = padding;
+        self
+    }
+
     /// Compute the inner area of a block based on its border visibility rules.
     ///
     /// # Examples
@@ -528,38 +566,6 @@ impl<'a> Block<'a> {
         self.titles
             .iter()
             .any(|title| title.position.unwrap_or(self.titles_position) == position)
-    }
-
-    /// Defines the padding inside a `Block`.
-    ///
-    /// See [`Padding`] for more information.
-    ///
-    /// # Examples
-    ///
-    /// This renders a `Block` with no padding (the default).
-    /// ```
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// Block::bordered().padding(Padding::zero());
-    /// // Renders
-    /// // ┌───────┐
-    /// // │content│
-    /// // └───────┘
-    /// ```
-    ///
-    /// This example shows a `Block` with padding left and right ([`Padding::horizontal`]).
-    /// Notice the two spaces before and after the content.
-    /// ```
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// Block::bordered().padding(Padding::horizontal(2));
-    /// // Renders
-    /// // ┌───────────┐
-    /// // │  content  │
-    /// // └───────────┘
-    /// ```
-    #[must_use = "method moves the value of self and returns the modified value"]
-    pub const fn padding(mut self, padding: Padding) -> Self {
-        self.padding = padding;
-        self
     }
 }
 
@@ -628,7 +634,7 @@ impl Block<'_> {
     fn render_left_side(&self, area: Rect, buf: &mut Buffer) {
         if self.borders.contains(Borders::LEFT) {
             for y in area.top()..area.bottom() {
-                buf.get_mut(area.left(), y)
+                buf[(area.left(), y)]
                     .set_symbol(self.border_set.vertical_left)
                     .set_style(self.border_style);
             }
@@ -638,7 +644,7 @@ impl Block<'_> {
     fn render_top_side(&self, area: Rect, buf: &mut Buffer) {
         if self.borders.contains(Borders::TOP) {
             for x in area.left()..area.right() {
-                buf.get_mut(x, area.top())
+                buf[(x, area.top())]
                     .set_symbol(self.border_set.horizontal_top)
                     .set_style(self.border_style);
             }
@@ -649,7 +655,7 @@ impl Block<'_> {
         if self.borders.contains(Borders::RIGHT) {
             let x = area.right() - 1;
             for y in area.top()..area.bottom() {
-                buf.get_mut(x, y)
+                buf[(x, y)]
                     .set_symbol(self.border_set.vertical_right)
                     .set_style(self.border_style);
             }
@@ -660,7 +666,7 @@ impl Block<'_> {
         if self.borders.contains(Borders::BOTTOM) {
             let y = area.bottom() - 1;
             for x in area.left()..area.right() {
-                buf.get_mut(x, y)
+                buf[(x, y)]
                     .set_symbol(self.border_set.horizontal_bottom)
                     .set_style(self.border_style);
             }
@@ -669,7 +675,7 @@ impl Block<'_> {
 
     fn render_bottom_right_corner(&self, buf: &mut Buffer, area: Rect) {
         if self.borders.contains(Borders::RIGHT | Borders::BOTTOM) {
-            buf.get_mut(area.right() - 1, area.bottom() - 1)
+            buf[(area.right() - 1, area.bottom() - 1)]
                 .set_symbol(self.border_set.bottom_right)
                 .set_style(self.border_style);
         }
@@ -677,7 +683,7 @@ impl Block<'_> {
 
     fn render_top_right_corner(&self, buf: &mut Buffer, area: Rect) {
         if self.borders.contains(Borders::RIGHT | Borders::TOP) {
-            buf.get_mut(area.right() - 1, area.top())
+            buf[(area.right() - 1, area.top())]
                 .set_symbol(self.border_set.top_right)
                 .set_style(self.border_style);
         }
@@ -685,7 +691,7 @@ impl Block<'_> {
 
     fn render_bottom_left_corner(&self, buf: &mut Buffer, area: Rect) {
         if self.borders.contains(Borders::LEFT | Borders::BOTTOM) {
-            buf.get_mut(area.left(), area.bottom() - 1)
+            buf[(area.left(), area.bottom() - 1)]
                 .set_symbol(self.border_set.bottom_left)
                 .set_style(self.border_style);
         }
@@ -693,7 +699,7 @@ impl Block<'_> {
 
     fn render_top_left_corner(&self, buf: &mut Buffer, area: Rect) {
         if self.borders.contains(Borders::LEFT | Borders::TOP) {
-            buf.get_mut(area.left(), area.top())
+            buf[(area.left(), area.top())]
                 .set_symbol(self.border_set.top_left)
                 .set_style(self.border_style);
         }
@@ -997,7 +1003,7 @@ mod tests {
                 border_style: Style::new(),
                 border_set: BorderType::Plain.to_border_set(),
                 style: Style::new(),
-                padding: Padding::zero(),
+                padding: Padding::ZERO,
             }
         );
     }

@@ -180,7 +180,8 @@ fn widgets_line_gauge_renders() {
     terminal
         .draw(|f| {
             let gauge = LineGauge::default()
-                .gauge_style(Style::default().fg(Color::Green).bg(Color::White))
+                .filled_style(Style::default().fg(Color::Green))
+                .unfilled_style(Style::default().fg(Color::White))
                 .ratio(0.43);
             f.render_widget(
                 gauge,
@@ -193,7 +194,7 @@ fn widgets_line_gauge_renders() {
             );
             let gauge = LineGauge::default()
                 .block(Block::bordered().title("Gauge 2"))
-                .gauge_style(Style::default().fg(Color::Green))
+                .filled_style(Style::default().fg(Color::Green))
                 .line_set(symbols::line::THICK)
                 .ratio(0.211_313_934_313_1);
             f.render_widget(
@@ -214,13 +215,13 @@ fn widgets_line_gauge_renders() {
         "└──────────────────┘",
     ]);
     for col in 4..10 {
-        expected.get_mut(col, 0).set_fg(Color::Green);
+        expected[(col, 0)].set_fg(Color::Green);
     }
     for col in 10..20 {
-        expected.get_mut(col, 0).set_fg(Color::White);
+        expected[(col, 0)].set_fg(Color::White);
     }
     for col in 5..7 {
-        expected.get_mut(col, 2).set_fg(Color::Green);
+        expected[(col, 2)].set_fg(Color::Green);
     }
     terminal.backend().assert_buffer(&expected);
 }

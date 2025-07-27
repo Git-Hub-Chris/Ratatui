@@ -27,15 +27,14 @@
 //
 // See also https://github.com/rhysd/tui-textarea and https://github.com/sayanarijit/tui-input/
 
-use std::{error::Error, io};
-
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use color_eyre::Result;
 use ratatui::{
-    prelude::*,
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    layout::{Constraint, Layout},
+    style::{Color, Modifier, Style, Stylize},
+    terminal::Frame,
+    text::{Line, Span, Text},
     widgets::{Block, List, ListItem, Paragraph},
 };
 
@@ -86,7 +85,7 @@ impl App {
     ///
     /// Since each character in a string can be contain multiple bytes, it's necessary to calculate
     /// the byte index based on the index of the character.
-    fn byte_index(&mut self) -> usize {
+    fn byte_index(&self) -> usize {
         self.input
             .char_indices()
             .map(|(i, _)| i)
@@ -131,35 +130,12 @@ impl App {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+fn main() -> Result<()> {
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?
+        .with_mouse_capture()?
+        .to_terminal()?;
 
-    // create app and run it
-    let app = App::new();
-    let res = run_app(&mut terminal, app);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{err:?}");
-    }
-
-    Ok(())
-}
-
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
+    let mut app = App::new();
     loop {
         terminal.draw(|f| ui(f, &app))?;
 

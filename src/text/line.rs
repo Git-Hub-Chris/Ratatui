@@ -4,14 +4,16 @@ use std::{borrow::Cow, fmt};
 
 use unicode_truncate::UnicodeTruncateStr;
 
-use super::StyledGrapheme;
-use crate::prelude::*;
+use crate::{prelude::*, style::Styled, text::StyledGrapheme};
 
 /// A line of text, consisting of one or more [`Span`]s.
 ///
 /// [`Line`]s are used wherever text is displayed in the terminal and represent a single line of
 /// text. When a [`Line`] is rendered, it is rendered as a single line of text, with each [`Span`]
 /// being rendered in order (left to right).
+///
+/// Any newlines in the content are removed when creating a [`Line`] using the constructor or
+/// conversion methods.
 ///
 /// # Constructor Methods
 ///
@@ -503,13 +505,13 @@ impl<'a> IntoIterator for &'a mut Line<'a> {
 
 impl<'a> From<String> for Line<'a> {
     fn from(s: String) -> Self {
-        Self::from(vec![Span::from(s)])
+        Self::raw(s)
     }
 }
 
 impl<'a> From<&'a str> for Line<'a> {
     fn from(s: &'a str) -> Self {
-        Self::from(vec![Span::from(s)])
+        Self::raw(s)
     }
 }
 
@@ -804,14 +806,22 @@ mod tests {
     fn from_string() {
         let s = String::from("Hello, world!");
         let line = Line::from(s);
-        assert_eq!(vec![Span::from("Hello, world!")], line.spans);
+        assert_eq!(line.spans, vec![Span::from("Hello, world!")]);
+
+        let s = String::from("Hello\nworld!");
+        let line = Line::from(s);
+        assert_eq!(line.spans, vec![Span::from("Hello"), Span::from("world!")]);
     }
 
     #[test]
     fn from_str() {
         let s = "Hello, world!";
         let line = Line::from(s);
-        assert_eq!(vec![Span::from("Hello, world!")], line.spans);
+        assert_eq!(line.spans, vec![Span::from("Hello, world!")]);
+
+        let s = "Hello\nworld!";
+        let line = Line::from(s);
+        assert_eq!(line.spans, vec![Span::from("Hello"), Span::from("world!")]);
     }
 
     #[test]
@@ -821,7 +831,7 @@ mod tests {
             Span::styled(" world!", Style::default().fg(Color::Green)),
         ];
         let line = Line::from(spans.clone());
-        assert_eq!(spans, line.spans);
+        assert_eq!(line.spans, spans);
     }
 
     #[test]
@@ -854,7 +864,7 @@ mod tests {
     fn from_span() {
         let span = Span::styled("Hello, world!", Style::default().fg(Color::Yellow));
         let line = Line::from(span.clone());
-        assert_eq!(vec![span], line.spans);
+        assert_eq!(line.spans, vec![span],);
     }
 
     #[test]
@@ -864,7 +874,7 @@ mod tests {
             Span::styled(" world!", Style::default().fg(Color::Green)),
         ]);
         let s: String = line.into();
-        assert_eq!("Hello, world!", s);
+        assert_eq!(s, "Hello, world!");
     }
 
     #[test]
@@ -1169,7 +1179,7 @@ mod tests {
         fn render_truncates_away_from_0x0(#[case] alignment: Alignment, #[case] expected: &str) {
             let line = Line::from(vec![Span::raw("a🦀b"), Span::raw("c🦀d")]).alignment(alignment);
             // Fill buffer with stuff to ensure the output is indeed padded
-            let mut buf = Buffer::filled(Rect::new(0, 0, 10, 1), Cell::default().set_symbol("X"));
+            let mut buf = Buffer::filled(Rect::new(0, 0, 10, 1), Cell::new("X"));
             let area = Rect::new(2, 0, 6, 1);
             line.render_ref(area, &mut buf);
             assert_eq!(buf, Buffer::with_lines([expected]));
@@ -1188,7 +1198,7 @@ mod tests {
             let line = Line::from(vec![Span::raw("a🦀b"), Span::raw("c🦀d")]).right_aligned();
             let area = Rect::new(0, 0, buf_width, 1);
             // Fill buffer with stuff to ensure the output is indeed padded
-            let mut buf = Buffer::filled(area, Cell::default().set_symbol("X"));
+            let mut buf = Buffer::filled(area, Cell::new("X"));
             line.render_ref(buf.area, &mut buf);
             assert_eq!(buf, Buffer::with_lines([expected]));
         }

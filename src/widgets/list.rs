@@ -3,6 +3,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     prelude::*,
+    style::Styled,
     widgets::{Block, HighlightSpacing},
 };
 
@@ -706,48 +707,6 @@ impl<'a> List<'a> {
         self
     }
 
-    /// Defines the list direction (up or down)
-    ///
-    /// Defines if the `List` is displayed *top to bottom* (default) or *bottom to top*. Use
-    /// [`Corner::BottomLeft`] to go *bottom to top*. **Any** other variant will go *top to bottom*.
-    /// If there is too few items to fill the screen, the list will stick to the starting edge.
-    ///
-    /// This is set to [`Corner::TopLeft`] by default.
-    ///
-    /// This is a fluent setter method which must be chained or used as it consumes self
-    ///
-    /// ## Note
-    ///
-    /// Despite its name, this method doesn't change the horizontal alignment, i.e. the `List`
-    /// **won't** start in a corner.
-    ///
-    /// # Example
-    ///
-    /// Same as default, i.e. *top to bottom*. Despite the name implying otherwise.
-    ///
-    /// ```rust
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// # let items = ["Item 1"];
-    /// let list = List::new(items).start_corner(Corner::BottomRight);
-    /// ```
-    ///
-    /// Bottom to top
-    ///
-    /// ```rust
-    /// # use ratatui::{prelude::*, widgets::*};
-    /// # let items = ["Item 1"];
-    /// let list = List::new(items).start_corner(Corner::BottomLeft);
-    /// ```
-    #[must_use = "method moves the value of self and returns the modified value"]
-    #[deprecated(since = "0.25.0", note = "You should use `List::direction` instead.")]
-    pub fn start_corner(self, corner: Corner) -> Self {
-        if corner == Corner::BottomLeft {
-            self.direction(ListDirection::BottomToTop)
-        } else {
-            self.direction(ListDirection::TopToBottom)
-        }
-    }
-
     /// Returns the number of [`ListItem`]s in the list
     pub fn len(&self) -> usize {
         self.items.len()
@@ -895,7 +854,7 @@ impl Widget for List<'_> {
 impl WidgetRef for List<'_> {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let mut state = ListState::default();
-        StatefulWidgetRef::render_ref(self, area, buf, &mut state);
+        self.render_stateful_ref(area, buf, &mut state);
     }
 }
 
@@ -903,22 +862,23 @@ impl StatefulWidget for List<'_> {
     type State = ListState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        StatefulWidgetRef::render_ref(&self, area, buf, state);
+
     }
 }
 
 // Note: remove this when StatefulWidgetRef is stabilized and replace with the blanket impl
 impl StatefulWidget for &List<'_> {
     type State = ListState;
+
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        StatefulWidgetRef::render_ref(self, area, buf, state);
+
     }
 }
 
 impl StatefulWidgetRef for List<'_> {
     type State = ListState;
 
-    fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+    fn render_stateful_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         buf.set_style(area, self.style);
         self.block.render_ref(area, buf);
         let list_area = self.block.inner_if_some(area);
@@ -1203,7 +1163,7 @@ mod tests {
         height: u16,
     ) -> Buffer {
         let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
-        StatefulWidget::render(widget, buffer.area, &mut buffer, state);
+        widget.render_stateful(buffer.area, &mut buffer, state);
         buffer
     }
 
@@ -1263,7 +1223,7 @@ mod tests {
             let list = List::new(items.to_owned()).highlight_symbol(">>");
             let mut state = ListState::default().with_selected(selected);
             let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 5));
-            StatefulWidget::render(list, buffer.area, &mut buffer, &mut state);
+            list.render_stateful(buffer.area, &mut buffer, &mut state);
             assert_eq!(buffer, Buffer::with_lines(expected));
         }
 
@@ -1687,30 +1647,6 @@ mod tests {
         Lines::Item: Into<Line<'line>>,
     {
         let list = List::new(["Item 0", "Item 1", "Item 2"]).direction(direction);
-        let buffer = render_widget(list, 10, 4);
-        assert_eq!(buffer, Buffer::with_lines(expected));
-    }
-
-    #[rstest]
-    #[case::topleft(Corner::TopLeft, [
-        "Item 0    ",
-        "Item 1    ",
-        "Item 2    ",
-        "          ",
-    ])]
-    #[case::bottomleft(Corner::BottomLeft, [
-        "          ",
-        "Item 2    ",
-        "Item 1    ",
-        "Item 0    ",
-    ])]
-    fn start_corner<'line, Lines>(#[case] corner: Corner, #[case] expected: Lines)
-    where
-        Lines: IntoIterator,
-        Lines::Item: Into<Line<'line>>,
-    {
-        #[allow(deprecated)] // For start_corner
-        let list = List::new(["Item 0", "Item 1", "Item 2"]).start_corner(corner);
         let buffer = render_widget(list, 10, 4);
         assert_eq!(buffer, Buffer::with_lines(expected));
     }
@@ -2186,7 +2122,7 @@ mod tests {
         let list = List::new([item]).highlight_symbol(highlight_symbol);
         let mut state = ListState::default();
         state.select(Some(0));
-        StatefulWidget::render(list, single_line_buf.area, &mut single_line_buf, &mut state);
+        list.render_stateful(single_line_buf.area, &mut single_line_buf, &mut state);
         assert_eq!(single_line_buf, Buffer::with_lines([expected]));
     }
 }

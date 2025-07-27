@@ -13,17 +13,19 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use std::{error::Error, io, ops::ControlFlow, time::Duration};
+use std::{ops::ControlFlow, time::Duration};
 
-use crossterm::{
-    event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseButton, MouseEvent,
-        MouseEventKind,
-    },
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+use color_eyre::Result;
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    buffer::Buffer,
+    crossterm::event::{self, Event, KeyCode, MouseButton, MouseEvent, MouseEventKind},
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Style},
+    terminal::{Frame, Terminal},
+    text::Line,
+    widgets::{Paragraph, Widget},
 };
-use ratatui::{prelude::*, widgets::Paragraph};
 
 /// A custom widget that renders a button with a label, theme and state.
 #[derive(Debug, Clone)]
@@ -135,34 +137,14 @@ impl Button<'_> {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    // create app and run it
-    let res = run_app(&mut terminal);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{err:?}");
-    }
-
-    Ok(())
+fn main() -> Result<()> {
+    let terminal = CrosstermBackend::stdout_with_defaults()?
+        .with_mouse_capture()?
+        .to_terminal()?;
+    run_app(terminal)
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
+fn run_app(mut terminal: Terminal<impl Backend>) -> Result<()> {
     let mut selected_button: usize = 0;
     let mut button_states = [State::Selected, State::Normal, State::Normal];
     loop {
@@ -172,11 +154,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
         }
         match event::read()? {
             Event::Key(key) => {
-                if key.kind != event::KeyEventKind::Press {
-                    continue;
-                }
-                if handle_key_event(key, &mut button_states, &mut selected_button).is_break() {
-                    break;
+                if key.kind == event::KeyEventKind::Press
+                    && handle_key_event(key, &mut button_states, &mut selected_button).is_break()
+                {
+                    return Ok(());
                 }
             }
             Event::Mouse(mouse) => {
@@ -185,7 +166,6 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
             _ => (),
         }
     }
-    Ok(())
 }
 
 fn ui(frame: &mut Frame, states: [State; 3]) {

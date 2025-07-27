@@ -313,17 +313,20 @@ impl FromStr for Color {
                 _ => {
                     if let Ok(index) = s.parse::<u8>() {
                         Self::Indexed(index)
-                    } else if let (Ok(r), Ok(g), Ok(b)) = {
-                        if !s.starts_with('#') || s.len() != 7 {
-                            return Err(ParseColorError);
-                        }
-                        (
-                            u8::from_str_radix(&s[1..3], 16),
-                            u8::from_str_radix(&s[3..5], 16),
-                            u8::from_str_radix(&s[5..7], 16),
-                        )
-                    } {
-                        Self::Rgb(r, g, b)
+                    } else if s.starts_with('#') && s.len() == 7 {
+                        let red = s
+                            .get(1..3)
+                            .and_then(|v| u8::from_str_radix(v, 16).ok())
+                            .ok_or(ParseColorError)?;
+                        let green = s
+                            .get(3..5)
+                            .and_then(|v| u8::from_str_radix(v, 16).ok())
+                            .ok_or(ParseColorError)?;
+                        let blue = s
+                            .get(5..7)
+                            .and_then(|v| u8::from_str_radix(v, 16).ok())
+                            .ok_or(ParseColorError)?;
+                        Self::Rgb(red, green, blue)
                     } else {
                         return Err(ParseColorError);
                     }
@@ -587,6 +590,7 @@ mod tests {
             "abcdef0",       // 7 chars is not a color
             " bcdefa",       // doesn't start with a '#'
             "#abcdef00",     // too many chars
+            "#1🦀2",         // len 7 but on char boundaries shouldnt panic
             "resett",        // typo
             "lightblackk",   // typo
         ];

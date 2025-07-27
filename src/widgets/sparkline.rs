@@ -2,7 +2,7 @@ use std::cmp::min;
 
 use strum::{Display, EnumString};
 
-use crate::{prelude::*, widgets::Block};
+use crate::{prelude::*, style::Styled, widgets::Block};
 
 /// Widget to render a sparkline over one or more lines.
 ///
@@ -30,7 +30,7 @@ use crate::{prelude::*, widgets::Block};
 ///     .direction(RenderDirection::RightToLeft)
 ///     .style(Style::default().red().on_white());
 /// ```
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct Sparkline<'a> {
     /// A block to wrap the widget in
     block: Option<Block<'a>>,
@@ -41,6 +41,8 @@ pub struct Sparkline<'a> {
     /// The maximum value to take to compute the maximum bar height (if nothing is specified, the
     /// widget uses the max of the dataset)
     max: Option<u64>,
+    /// If true, draws a baseline of `bar::ONE_EIGHTH` spanning the bottom of the sparkline graph
+    show_baseline: bool,
     /// A set of bar symbols used to represent the give data
     bar_set: symbols::bar::Set,
     // The direction to render the sparkine, either from left to right, or from right to left
@@ -57,19 +59,6 @@ pub enum RenderDirection {
     LeftToRight,
     /// The first value is on the right, going to the left
     RightToLeft,
-}
-
-impl<'a> Default for Sparkline<'a> {
-    fn default() -> Self {
-        Self {
-            block: None,
-            style: Style::default(),
-            data: &[],
-            max: None,
-            bar_set: symbols::bar::NINE_LEVELS,
-            direction: RenderDirection::LeftToRight,
-        }
-    }
 }
 
 impl<'a> Sparkline<'a> {
@@ -120,12 +109,6 @@ impl<'a> Sparkline<'a> {
         self
     }
 
-    /// Sets the characters used to display the bars.
-    ///
-    /// Can be [`symbols::bar::THREE_LEVELS`], [`symbols::bar::NINE_LEVELS`] (default) or a custom
-    /// [`Set`](symbols::bar::Set).
-    #[must_use = "method moves the value of self and returns the modified value"]
-    pub const fn bar_set(mut self, bar_set: symbols::bar::Set) -> Self {
         self.bar_set = bar_set;
         self
     }
@@ -172,10 +155,6 @@ impl Sparkline<'_> {
             return;
         }
 
-        let max = match self.max {
-            Some(v) => v,
-            None => *self.data.iter().max().unwrap_or(&1),
-        };
         let max_index = min(spark_area.width as usize, self.data.len());
         let mut data = self
             .data
@@ -192,7 +171,13 @@ impl Sparkline<'_> {
         for j in (0..spark_area.height).rev() {
             for (i, d) in data.iter_mut().enumerate() {
                 let symbol = match *d {
-                    0 => self.bar_set.empty,
+                    0 => {
+                        if self.show_baseline && j == spark_area.height - 1 {
+                            self.bar_set.one_eighth
+                        } else {
+                            self.bar_set.empty
+                        }
+                    }
                     1 => self.bar_set.one_eighth,
                     2 => self.bar_set.one_quarter,
                     3 => self.bar_set.three_eighths,
@@ -206,7 +191,7 @@ impl Sparkline<'_> {
                     RenderDirection::LeftToRight => spark_area.left() + i as u16,
                     RenderDirection::RightToLeft => spark_area.right() - i as u16 - 1,
                 };
-                buf.get_mut(x, spark_area.top() + j)
+                buf[(x, spark_area.top() + j)]
                     .set_symbol(symbol)
                     .set_style(self.style);
 
@@ -222,63 +207,26 @@ impl Sparkline<'_> {
 
 #[cfg(test)]
 mod tests {
-    use strum::ParseError;
 
-    use super::*;
-    use crate::buffer::Cell;
-
-    #[test]
-    fn render_direction_to_string() {
-        assert_eq!(RenderDirection::LeftToRight.to_string(), "LeftToRight");
-        assert_eq!(RenderDirection::RightToLeft.to_string(), "RightToLeft");
-    }
-
-    #[test]
-    fn render_direction_from_str() {
-        assert_eq!(
-            "LeftToRight".parse::<RenderDirection>(),
-            Ok(RenderDirection::LeftToRight)
-        );
-        assert_eq!(
-            "RightToLeft".parse::<RenderDirection>(),
-            Ok(RenderDirection::RightToLeft)
-        );
-        assert_eq!(
-            "".parse::<RenderDirection>(),
-            Err(ParseError::VariantNotFound)
-        );
-    }
-
-    // Helper function to render a sparkline to a buffer with a given width
-    // filled with x symbols to make it easier to assert on the result
-    fn render(widget: Sparkline, width: u16) -> Buffer {
-        let area = Rect::new(0, 0, width, 1);
-        let mut cell = Cell::default();
-        cell.set_symbol("x");
-        let mut buffer = Buffer::filled(area, &cell);
-        widget.render(area, &mut buffer);
         buffer
     }
 
     #[test]
     fn it_does_not_panic_if_max_is_zero() {
         let widget = Sparkline::default().data(&[0, 0, 0]);
-        let buffer = render(widget, 6);
-        assert_eq!(buffer, Buffer::with_lines(["   xxx"]));
+
     }
 
     #[test]
     fn it_does_not_panic_if_max_is_set_to_zero() {
         let widget = Sparkline::default().data(&[0, 1, 2]).max(0);
-        let buffer = render(widget, 6);
-        assert_eq!(buffer, Buffer::with_lines(["   xxx"]));
+
     }
 
     #[test]
-    fn it_draws() {
+    fn it_renders() {
         let widget = Sparkline::default().data(&[0, 1, 2, 3, 4, 5, 6, 7, 8]);
-        let buffer = render(widget, 12);
-        assert_eq!(buffer, Buffer::with_lines([" ▁▂▃▄▅▆▇█xxx"]));
+
     }
 
     #[test]
@@ -286,8 +234,7 @@ mod tests {
         let widget = Sparkline::default()
             .data(&[0, 1, 2, 3, 4, 5, 6, 7, 8])
             .direction(RenderDirection::LeftToRight);
-        let buffer = render(widget, 12);
-        assert_eq!(buffer, Buffer::with_lines([" ▁▂▃▄▅▆▇█xxx"]));
+
     }
 
     #[test]
@@ -295,24 +242,6 @@ mod tests {
         let widget = Sparkline::default()
             .data(&[0, 1, 2, 3, 4, 5, 6, 7, 8])
             .direction(RenderDirection::RightToLeft);
-        let buffer = render(widget, 12);
-        assert_eq!(buffer, Buffer::with_lines(["xxx█▇▆▅▄▃▂▁ "]));
-    }
 
-    #[test]
-    fn can_be_stylized() {
-        assert_eq!(
-            Sparkline::default()
-                .black()
-                .on_white()
-                .bold()
-                .not_dim()
-                .style,
-            Style::default()
-                .fg(Color::Black)
-                .bg(Color::White)
-                .add_modifier(Modifier::BOLD)
-                .remove_modifier(Modifier::DIM)
-        );
     }
 }

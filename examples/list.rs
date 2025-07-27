@@ -13,17 +13,20 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-#![allow(clippy::enum_glob_use, clippy::wildcard_imports)]
-
-use std::{error::Error, io, io::stdout};
-
-use color_eyre::config::HookBuilder;
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
+use color_eyre::Result;
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    buffer::Buffer,
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{palette::tailwind, Color, Modifier, Style, Stylize},
+    terminal::Terminal,
+    text::Line,
+    widgets::{
+        Block, Borders, HighlightSpacing, List, ListItem, ListState, Padding, Paragraph,
+        StatefulWidget, Widget, Wrap,
+    },
 };
-use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 
 const TODO_HEADER_BG: Color = tailwind::BLUE.c950;
 const NORMAL_ROW_COLOR: Color = tailwind::SLATE.c950;
@@ -38,15 +41,25 @@ enum Status {
     Completed,
 }
 
-struct TodoItem<'a> {
-    todo: &'a str,
-    info: &'a str,
+struct TodoItem {
+    todo: String,
+    info: String,
     status: Status,
 }
 
-struct StatefulList<'a> {
+impl TodoItem {
+    fn new(todo: &str, info: &str, status: Status) -> Self {
+        Self {
+            todo: todo.to_string(),
+            info: info.to_string(),
+            status,
+        }
+    }
+}
+
+struct TodoList {
     state: ListState,
-    items: Vec<TodoItem<'a>>,
+    items: Vec<TodoItem>,
     last_selected: Option<usize>,
 }
 
@@ -56,56 +69,19 @@ struct StatefulList<'a> {
 ///
 /// Check the event handling at the bottom to see how to change the state on incoming events.
 /// Check the drawing logic for items on how to specify the highlighting style for selected items.
-struct App<'a> {
-    items: StatefulList<'a>,
+struct App {
+    items: TodoList,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // setup terminal
-    init_error_hooks()?;
-    let terminal = init_terminal()?;
-
-    // create app and run it
-    App::new().run(terminal)?;
-
-    restore_terminal()?;
-
-    Ok(())
+fn main() -> Result<()> {
+    let terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
+    App::new().run(terminal)
 }
 
-fn init_error_hooks() -> color_eyre::Result<()> {
-    let (panic, error) = HookBuilder::default().into_hooks();
-    let panic = panic.into_panic_hook();
-    let error = error.into_eyre_hook();
-    color_eyre::eyre::set_hook(Box::new(move |e| {
-        let _ = restore_terminal();
-        error(e)
-    }))?;
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = restore_terminal();
-        panic(info);
-    }));
-    Ok(())
-}
-
-fn init_terminal() -> color_eyre::Result<Terminal<impl Backend>> {
-    enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout());
-    let terminal = Terminal::new(backend)?;
-    Ok(terminal)
-}
-
-fn restore_terminal() -> color_eyre::Result<()> {
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
-    Ok(())
-}
-
-impl<'a> App<'a> {
+impl App {
     fn new() -> Self {
         Self {
-            items: StatefulList::with_items([
+            items: TodoList::with_items(&[
                 ("Rewrite everything with Rust!", "I can't hold my inner voice. He tells me to rewrite the complete universe with Rust", Status::Todo),
                 ("Rewrite all of your tui apps with Ratatui", "Yes, you heard that right. Go and replace your tui with Ratatui.", Status::Completed),
                 ("Pet your cat", "Minnak loves to be pet by you! Don't forget to pet and give some treats!", Status::Todo),
@@ -135,22 +111,23 @@ impl<'a> App<'a> {
     }
 }
 
-impl App<'_> {
-    fn run(&mut self, mut terminal: Terminal<impl Backend>) -> io::Result<()> {
+impl App {
+    fn run(mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         loop {
             self.draw(&mut terminal)?;
 
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
-                    use KeyCode::*;
                     match key.code {
-                        Char('q') | Esc => return Ok(()),
-                        Char('h') | Left => self.items.unselect(),
-                        Char('j') | Down => self.items.next(),
-                        Char('k') | Up => self.items.previous(),
-                        Char('l') | Right | Enter => self.change_status(),
-                        Char('g') => self.go_top(),
-                        Char('G') => self.go_bottom(),
+                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                        KeyCode::Char('h') | KeyCode::Left => self.items.unselect(),
+                        KeyCode::Char('j') | KeyCode::Down => self.items.next(),
+                        KeyCode::Char('k') | KeyCode::Up => self.items.previous(),
+                        KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => {
+                            self.change_status();
+                        }
+                        KeyCode::Char('g') => self.go_top(),
+                        KeyCode::Char('G') => self.go_bottom(),
                         _ => {}
                     }
                 }
@@ -158,13 +135,13 @@ impl App<'_> {
         }
     }
 
-    fn draw(&mut self, terminal: &mut Terminal<impl Backend>) -> io::Result<()> {
+    fn draw(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
         terminal.draw(|f| f.render_widget(self, f.size()))?;
         Ok(())
     }
 }
 
-impl Widget for &mut App<'_> {
+impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Create a space for header, todo list and the footer.
         let vertical = Layout::vertical([
@@ -186,7 +163,7 @@ impl Widget for &mut App<'_> {
     }
 }
 
-impl App<'_> {
+impl App {
     fn render_todo(&mut self, area: Rect, buf: &mut Buffer) {
         // We create two blocks, one is for the header (outer) and the other is for list (inner).
         let outer_block = Block::new()
@@ -229,17 +206,15 @@ impl App<'_> {
             .highlight_spacing(HighlightSpacing::Always);
 
         // We can now render the item list
-        // (look careful we are using StatefulWidget's render.)
-        // ratatui::widgets::StatefulWidget::render as stateful_render
-        StatefulWidget::render(items, inner_area, buf, &mut self.items.state);
+        items.render_stateful(inner_area, buf, &mut self.items.state);
     }
 
     fn render_info(&self, area: Rect, buf: &mut Buffer) {
         // We get the info depending on the item's state.
         let info = if let Some(i) = self.items.state.selected() {
             match self.items.items[i].status {
-                Status::Completed => "✓ DONE: ".to_string() + self.items.items[i].info,
-                Status::Todo => "TODO: ".to_string() + self.items.items[i].info,
+                Status::Completed => format!("✓ DONE: {}", self.items.items[i].info),
+                Status::Todo => format!("TODO: {}", self.items.items[i].info),
             }
         } else {
             "Nothing to see here...".to_string()
@@ -288,11 +263,14 @@ fn render_footer(area: Rect, buf: &mut Buffer) {
         .render(area, buf);
 }
 
-impl StatefulList<'_> {
-    fn with_items<'a>(items: [(&'a str, &'a str, Status); 6]) -> StatefulList<'a> {
-        StatefulList {
+impl TodoList {
+    fn with_items(items: &[(&str, &str, Status)]) -> Self {
+        Self {
             state: ListState::default(),
-            items: items.iter().map(TodoItem::from).collect(),
+            items: items
+                .iter()
+                .map(|(todo, info, status)| TodoItem::new(todo, info, *status))
+                .collect(),
             last_selected: None,
         }
     }
@@ -333,7 +311,7 @@ impl StatefulList<'_> {
     }
 }
 
-impl TodoItem<'_> {
+impl TodoItem {
     fn to_list_item(&self, index: usize) -> ListItem {
         let bg_color = match index % 2 {
             0 => NORMAL_ROW_COLOR,
@@ -348,15 +326,5 @@ impl TodoItem<'_> {
         };
 
         ListItem::new(line).bg(bg_color)
-    }
-}
-
-impl<'a> From<&(&'a str, &'a str, Status)> for TodoItem<'a> {
-    fn from((todo, info, status): &(&'a str, &'a str, Status)) -> Self {
-        Self {
-            todo,
-            info,
-            status: *status,
-        }
     }
 }
