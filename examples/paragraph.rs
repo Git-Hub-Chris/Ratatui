@@ -74,14 +74,7 @@ impl App {
         Ok(())
     }
 
-    /// Handle events from the terminal.
-    fn handle_events(&mut self) -> Result<()> {
-        let timeout = Self::TICK_RATE.saturating_sub(self.last_tick.elapsed());
-        while event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    self.should_exit = true;
-                }
+
             }
         }
         Ok(())
@@ -155,3 +148,4 @@ fn create_lines(area: Rect) -> Vec<Line<'static>> {
         ]),
     ]
 }
+

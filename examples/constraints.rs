@@ -237,13 +237,14 @@ impl App {
         for (i, cell) in visible_content.enumerate() {
             let x = i as u16 % area.width;
             let y = i as u16 / area.width;
-            *buf.get_mut(area.x + x, area.y + y) = cell;
+            buf[(area.x + x, area.y + y)] = cell;
         }
 
         if scrollbar_needed {
             let mut state = ScrollbarState::new(self.max_scroll_offset as usize)
                 .position(self.scroll_offset as usize);
-            Scrollbar::new(ScrollbarOrientation::VerticalRight).render(area, buf, &mut state);
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .render_stateful(area, buf, &mut state);
         }
     }
 }

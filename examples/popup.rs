@@ -43,15 +43,7 @@ fn main() -> Result<()> {
 
     let mut app = App::new();
     loop {
-        terminal.draw(|f| ui(f, &app))?;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Char('p') => app.show_popup = !app.show_popup,
-                    _ => {}
-                }
             }
         }
     }
@@ -68,13 +60,7 @@ fn ui(f: &mut Frame, app: &App) {
     } else {
         "Press p to show the popup"
     };
-    let paragraph = Paragraph::new(text.slow_blink())
-        .centered()
-        .wrap(Wrap { trim: true });
-    f.render_widget(paragraph, instructions);
 
-    let block = Block::bordered().title("Content").on_blue();
-    f.render_widget(block, content);
 
     if app.show_popup {
         let block = Block::bordered().title("Popup");

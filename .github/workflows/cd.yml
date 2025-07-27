@@ -54,6 +54,8 @@ jobs:
   publish-stable:
     name: Create a stable release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: ${{ startsWith(github.event.ref, 'refs/tags/v') }}
     steps:
       - name: Checkout the repository
