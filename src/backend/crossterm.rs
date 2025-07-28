@@ -1,8 +1,7 @@
 //! This module provides the [`CrosstermBackend`] implementation for the [`Backend`] trait. It uses
 //! the [Crossterm] crate to interact with the terminal.
 //!
-//! [Crossterm]: https://crates.io/crates/crossterm
-use std::io;
+
 
 #[cfg(feature = "underline-color")]
 use crate::crossterm::style::SetUnderlineColor;
@@ -321,7 +320,6 @@ impl CrosstermBackend<io::Stderr> {
     }
 }
 
-impl<W: io::Write> Backend for CrosstermBackend<W> {
     fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
     where
         I: Iterator<Item = (u16, u16, &'a Cell)>,
