@@ -1,97 +1,300 @@
-use std::cell::RefCell;
-use std::cmp::{max, min};
-use std::collections::HashMap;
+#![warn(clippy::missing_const_for_fn)]
 
-use cassowary::strength::{REQUIRED, WEAK};
-use cassowary::WeightedRelation::*;
-use cassowary::{Constraint as CassowaryConstraint, Expression, Solver, Variable};
+mod alignment;
+mod constraint;
+mod direction;
+mod flex;
+#[allow(clippy::module_inception)]
+mod layout;
+mod margin;
+mod position;
+mod rect;
+mod size;
 
-#[derive(Debug, Hash, Clone, Copy, PartialEq, Eq)]
-pub enum Corner {
-    TopLeft,
-    TopRight,
-    BottomRight,
-    BottomLeft,
-}
+pub use alignment::Alignment;
+pub use constraint::Constraint;
+pub use direction::Direction;
+pub use flex::Flex;
+pub use layout::Layout;
+pub use margin::Margin;
+pub use position::Position;
+pub use rect::*;
 
-#[derive(Debug, Hash, Clone, PartialEq, Eq)]
-pub enum Direction {
-    Horizontal,
-    Vertical,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Constraint {
-    // TODO: enforce range 0 - 100
-    Percentage(u16),
-    Ratio(u32, u32),
-    Length(u16),
-    Max(u16),
-    Min(u16),
-}
-
-impl Constraint {
-    pub fn apply(&self, length: u16) -> u16 {
-        match *self {
-            Constraint::Percentage(p) => length * p / 100,
-            Constraint::Ratio(num, den) => {
-                let r = num * u32::from(length) / den;
-                r as u16
-            }
-            Constraint::Length(l) => length.min(l),
-            Constraint::Max(m) => length.min(m),
-            Constraint::Min(m) => length.max(m),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Margin {
-    pub vertical: u16,
-    pub horizontal: u16,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Alignment {
-    Left,
-    Center,
-    Right,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// When the layout is computed, the result is cached in a thread-local cache, so that subsequent
+/// calls with the same parameters are faster. The cache is a simple HashMap, and grows
+/// indefinitely. (See <https://github.com/ratatui-org/ratatui/issues/402> for more information)
+///
+/// # Constructors
+///
+/// There are four ways to create a new layout:
+///
+/// - [`Layout::default`]: create a new layout with default values
+/// - [`Layout::new`]: create a new layout with a given direction and constraints
+/// - [`Layout::vertical`]: create a new vertical layout with the given constraints
+/// - [`Layout::horizontal`]: create a new horizontal layout with the given constraints
+///
+/// # Setters
+///
+/// There are several setters to modify the layout:
+///
+/// - [`Layout::direction`]: set the direction of the layout
+/// - [`Layout::constraints`]: set the constraints of the layout
+/// - [`Layout::margin`]: set the margin of the layout
+/// - [`Layout::horizontal_margin`]: set the horizontal margin of the layout
+/// - [`Layout::vertical_margin`]: set the vertical margin of the layout
+/// - [`Layout::segment_size`]: set the way the space is distributed when the constraints are
+///   satisfied
+///
+/// # Example
+///
+/// ```rust
+/// use ratatui::{prelude::*, widgets::*};
+///
+/// fn render(frame: &mut Frame, area: Rect) {
+///     let layout = Layout::new(
+///         Direction::Vertical,
+///         [Constraint::Length(5), Constraint::Min(0)],
+///     )
+///     .split(Rect::new(0, 0, 10, 10));
+///     frame.render_widget(Paragraph::new("foo"), layout[0]);
+///     frame.render_widget(Paragraph::new("bar"), layout[1]);
+/// }
+/// ```
+///
+/// The [`layout.rs` example](https://github.com/ratatui-org/ratatui/blob/main/examples/layout.rs)
+/// shows the effect of combining constraints:
+///
+/// ![layout
+/// example](https://camo.githubusercontent.com/77d22f3313b782a81e5e033ef82814bb48d786d2598699c27f8e757ccee62021/68747470733a2f2f7668732e636861726d2e73682f7668732d315a4e6f4e4c4e6c4c746b4a58706767396e435635652e676966)
+///
+/// [`cassowary-rs`]: https://crates.io/crates/cassowary
+#[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 pub struct Layout {
     direction: Direction,
-    margin: Margin,
     constraints: Vec<Constraint>,
+    margin: Margin,
+    /// option for segment size preferences
+    segment_size: SegmentSize,
 }
 
-thread_local! {
-    static LAYOUT_CACHE: RefCell<HashMap<(Rect, Layout), Vec<Rect>>> = RefCell::new(HashMap::new());
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct Margin {
+    pub horizontal: u16,
+    pub vertical: u16,
 }
 
-impl Default for Layout {
-    fn default() -> Layout {
-        Layout {
-            direction: Direction::Vertical,
-            margin: Margin {
-                horizontal: 0,
-                vertical: 0,
-            },
-            constraints: Vec::new(),
-        }
-    }
+
+#[derive(Copy, Debug, Default, Display, EnumString, Clone, Eq, PartialEq, Hash)]
+pub enum SegmentSize {
+    /// prefer equal chunks if other constraints are all satisfied
+    EvenDistribution,
+
+    /// the last chunk is expanded to fill the remaining space
+    #[default]
+    LastTakesRemainder,
+
+    /// extra space is not distributed
+    None,
+}
+
+/// A container used by the solver inside split
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+struct Element {
+    start: Variable,
+    end: Variable,
 }
 
 impl Layout {
-    pub fn constraints<C>(mut self, constraints: C) -> Layout
+    pub const DEFAULT_CACHE_SIZE: usize = 16;
+    /// Creates a new layout with default values.
+    ///
+    /// The `constraints` parameter accepts any type that implements `IntoIterator<Item =
+    /// AsRef<Constraint>>`. This includes arrays, slices, vectors, iterators, etc.
+    ///
+    /// Default values for the other fields are:
+    ///
+    /// - `margin`: 0, 0
+    /// - `segment_size`: SegmentSize::LastTakesRemainder
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let layout = Layout::new(
+    ///     Direction::Horizontal,
+    ///     [Constraint::Length(5), Constraint::Min(0)],
+    /// );
+    ///
+    /// let layout = Layout::new(
+    ///     Direction::Vertical,
+    ///     [1, 2, 3].iter().map(|&c| Constraint::Length(c)),
+    /// );
+    /// ```
+    pub fn new<I>(direction: Direction, constraints: I) -> Layout
     where
-        C: Into<Vec<Constraint>>,
+        I: IntoIterator,
+        I::Item: AsRef<Constraint>,
     {
-        self.constraints = constraints.into();
+        Layout {
+            direction,
+            margin: Margin::new(0, 0),
+            constraints: constraints.into_iter().map(|c| *c.as_ref()).collect(),
+            segment_size: SegmentSize::LastTakesRemainder,
+        }
+    }
+
+    /// Creates a new vertical layout with default values.
+    ///
+    /// The `constraints` parameter accepts any type that implements `IntoIterator<Item =
+    /// AsRef<Constraint>>`. This includes arrays, slices, vectors, iterators, etc.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let layout = Layout::vertical([Constraint::Length(5), Constraint::Min(0)]);
+    /// ```
+    pub fn vertical<I>(constraints: I) -> Layout
+    where
+        I: IntoIterator,
+        I::Item: Into<Constraint>,
+    {
+        Layout::new(Direction::Vertical, constraints.into_iter().map(Into::into))
+    }
+
+    /// Creates a new horizontal layout with default values.
+    ///
+    /// The `constraints` parameter accepts any type that implements `IntoIterator<Item =
+    /// AsRef<Constraint>>`. This includes arrays, slices, vectors, iterators, etc.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let layout = Layout::horizontal([Constraint::Length(5), Constraint::Min(0)]);
+    /// ```
+    pub fn horizontal<I>(constraints: I) -> Layout
+    where
+        I: IntoIterator,
+        I::Item: Into<Constraint>,
+    {
+        Layout::new(
+            Direction::Horizontal,
+            constraints.into_iter().map(Into::into),
+        )
+    }
+
+    /// Initialize an empty cache with a custom size. The cache is keyed on the layout and area, so
+    /// that subsequent calls with the same parameters are faster. The cache is a LruCache, and
+    /// grows until `cache_size` is reached.
+    ///
+    /// Returns true if the cell's value was set by this call.
+    /// Returns false if the cell's value was not set by this call, this means that another thread
+    /// has set this value or that the cache size is already initialized.
+    ///
+    /// Note that a custom cache size will be set only if this function:
+    /// * is called before [Layout::split()] otherwise, the cache size is
+    ///   [`Self::DEFAULT_CACHE_SIZE`].
+    /// * is called for the first time, subsequent calls do not modify the cache size.
+    pub fn init_cache(cache_size: usize) -> bool {
+        LAYOUT_CACHE
+            .with(|c| {
+                c.set(RefCell::new(LruCache::new(
+                    NonZeroUsize::new(cache_size).unwrap(),
+                )))
+            })
+            .is_ok()
+    }
+
+    /// Set the direction of the layout.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let layout = Layout::default()
+    ///     .direction(Direction::Horizontal)
+    ///     .constraints([Constraint::Length(5), Constraint::Min(0)])
+    ///     .split(Rect::new(0, 0, 10, 10));
+    /// assert_eq!(layout[..], [Rect::new(0, 0, 5, 10), Rect::new(5, 0, 5, 10)]);
+    ///
+    /// let layout = Layout::default()
+    ///     .direction(Direction::Vertical)
+    ///     .constraints([Constraint::Length(5), Constraint::Min(0)])
+    ///     .split(Rect::new(0, 0, 10, 10));
+    /// assert_eq!(layout[..], [Rect::new(0, 0, 10, 5), Rect::new(0, 5, 10, 5)]);
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn direction(mut self, direction: Direction) -> Layout {
+        self.direction = direction;
         self
     }
 
-    pub fn margin(mut self, margin: u16) -> Layout {
+    /// Sets the constraints of the layout.
+    ///
+    /// The `constraints` parameter accepts any type that implements `IntoIterator<Item =
+    /// AsRef<Constraint>>`. This includes arrays, slices, vectors, iterators, etc.
+    ///
+    /// Note that the constraints are applied to the whole area that is to be split, so using
+    /// percentages and ratios with the other constraints may not have the desired effect of
+    /// splitting the area up. (e.g. splitting 100 into [min 20, 50%, 50%], may not result in
+    /// [20, 40, 40] but rather an indeterminate result between [20, 50, 30] and [20, 30, 50]).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let layout = Layout::default()
+    ///     .constraints([
+    ///         Constraint::Percentage(20),
+    ///         Constraint::Ratio(1, 5),
+    ///         Constraint::Length(2),
+    ///         Constraint::Min(2),
+    ///         Constraint::Max(2),
+    ///     ])
+    ///     .split(Rect::new(0, 0, 10, 10));
+    /// assert_eq!(
+    ///     layout[..],
+    ///     [
+    ///         Rect::new(0, 0, 10, 2),
+    ///         Rect::new(0, 2, 10, 2),
+    ///         Rect::new(0, 4, 10, 2),
+    ///         Rect::new(0, 6, 10, 2),
+    ///         Rect::new(0, 8, 10, 2),
+    ///     ]
+    /// );
+    ///
+    /// let layout = Layout::default().constraints([Constraint::Min(0)]);
+    /// let layout = Layout::default().constraints(&[Constraint::Min(0)]);
+    /// let layout = Layout::default().constraints(vec![Constraint::Min(0)]);
+    /// let layout = Layout::default().constraints([Constraint::Min(0)].iter().filter(|_| true));
+    /// let layout = Layout::default().constraints([1, 2, 3].iter().map(|&c| Constraint::Length(c)));
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn constraints<I>(mut self, constraints: I) -> Layout
+    where
+        I: IntoIterator,
+        I::Item: AsRef<Constraint>,
+    {
+        self.constraints = constraints.into_iter().map(|c| *c.as_ref()).collect();
+        self
+    }
+
+    /// Set the margin of the layout.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let layout = Layout::default()
+    ///     .constraints([Constraint::Min(0)])
+    ///     .margin(2)
+    ///     .split(Rect::new(0, 0, 10, 10));
+    /// assert_eq!(layout[..], [Rect::new(2, 2, 6, 6)]);
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn margin(mut self, margin: u16) -> Layout {
         self.margin = Margin {
             horizontal: margin,
             vertical: margin,
@@ -99,436 +302,39 @@ impl Layout {
         self
     }
 
-    pub fn horizontal_margin(mut self, horizontal: u16) -> Layout {
+    /// Set the horizontal margin of the layout.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let layout = Layout::default()
+    ///     .constraints([Constraint::Min(0)])
+    ///     .horizontal_margin(2)
+    ///     .split(Rect::new(0, 0, 10, 10));
+    /// assert_eq!(layout[..], [Rect::new(2, 0, 6, 10)]);
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn horizontal_margin(mut self, horizontal: u16) -> Layout {
         self.margin.horizontal = horizontal;
         self
     }
 
-    pub fn vertical_margin(mut self, vertical: u16) -> Layout {
+    /// Set the vertical margin of the layout.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let layout = Layout::default()
+    ///     .constraints([Constraint::Min(0)])
+    ///     .vertical_margin(2)
+    ///     .split(Rect::new(0, 0, 10, 10));
+    /// assert_eq!(layout[..], [Rect::new(0, 2, 10, 6)]);
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn vertical_margin(mut self, vertical: u16) -> Layout {
         self.margin.vertical = vertical;
         self
     }
 
-    pub fn direction(mut self, direction: Direction) -> Layout {
-        self.direction = direction;
-        self
-    }
-
-    /// Wrapper function around the cassowary-rs solver to be able to split a given
-    /// area into smaller ones based on the preferred widths or heights and the direction.
-    ///
-    /// # Examples
-    /// ```
-    /// # use tui::layout::{Rect, Constraint, Direction, Layout};
-    /// let chunks = Layout::default()
-    ///     .direction(Direction::Vertical)
-    ///     .constraints([Constraint::Length(5), Constraint::Min(0)].as_ref())
-    ///     .split(Rect {
-    ///         x: 2,
-    ///         y: 2,
-    ///         width: 10,
-    ///         height: 10,
-    ///     });
-    /// assert_eq!(
-    ///     chunks,
-    ///     vec![
-    ///         Rect {
-    ///             x: 2,
-    ///             y: 2,
-    ///             width: 10,
-    ///             height: 5
-    ///         },
-    ///         Rect {
-    ///             x: 2,
-    ///             y: 7,
-    ///             width: 10,
-    ///             height: 5
-    ///         }
-    ///     ]
-    /// );
-    ///
-    /// let chunks = Layout::default()
-    ///     .direction(Direction::Horizontal)
-    ///     .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)].as_ref())
-    ///     .split(Rect {
-    ///         x: 0,
-    ///         y: 0,
-    ///         width: 9,
-    ///         height: 2,
-    ///     });
-    /// assert_eq!(
-    ///     chunks,
-    ///     vec![
-    ///         Rect {
-    ///             x: 0,
-    ///             y: 0,
-    ///             width: 3,
-    ///             height: 2
-    ///         },
-    ///         Rect {
-    ///             x: 3,
-    ///             y: 0,
-    ///             width: 6,
-    ///             height: 2
-    ///         }
-    ///     ]
-    /// );
-    /// ```
-    pub fn split(&self, area: Rect) -> Vec<Rect> {
-        // TODO: Maybe use a fixed size cache ?
-        LAYOUT_CACHE.with(|c| {
-            c.borrow_mut()
-                .entry((area, self.clone()))
-                .or_insert_with(|| split(area, self))
-                .clone()
-        })
-    }
-}
-
-fn split(area: Rect, layout: &Layout) -> Vec<Rect> {
-    let mut solver = Solver::new();
-    let mut vars: HashMap<Variable, (usize, usize)> = HashMap::new();
-    let elements = layout
-        .constraints
-        .iter()
-        .map(|_| Element::new())
-        .collect::<Vec<Element>>();
-    let mut results = layout
-        .constraints
-        .iter()
-        .map(|_| Rect::default())
-        .collect::<Vec<Rect>>();
-
-    let dest_area = area.inner(&layout.margin);
-    for (i, e) in elements.iter().enumerate() {
-        vars.insert(e.x, (i, 0));
-        vars.insert(e.y, (i, 1));
-        vars.insert(e.width, (i, 2));
-        vars.insert(e.height, (i, 3));
-    }
-    let mut ccs: Vec<CassowaryConstraint> =
-        Vec::with_capacity(elements.len() * 4 + layout.constraints.len() * 6);
-    for elt in &elements {
-        ccs.push(elt.width | GE(REQUIRED) | 0f64);
-        ccs.push(elt.height | GE(REQUIRED) | 0f64);
-        ccs.push(elt.left() | GE(REQUIRED) | f64::from(dest_area.left()));
-        ccs.push(elt.top() | GE(REQUIRED) | f64::from(dest_area.top()));
-        ccs.push(elt.right() | LE(REQUIRED) | f64::from(dest_area.right()));
-        ccs.push(elt.bottom() | LE(REQUIRED) | f64::from(dest_area.bottom()));
-    }
-    if let Some(first) = elements.first() {
-        ccs.push(match layout.direction {
-            Direction::Horizontal => first.left() | EQ(REQUIRED) | f64::from(dest_area.left()),
-            Direction::Vertical => first.top() | EQ(REQUIRED) | f64::from(dest_area.top()),
-        });
-    }
-    if let Some(last) = elements.last() {
-        ccs.push(match layout.direction {
-            Direction::Horizontal => last.right() | EQ(REQUIRED) | f64::from(dest_area.right()),
-            Direction::Vertical => last.bottom() | EQ(REQUIRED) | f64::from(dest_area.bottom()),
-        });
-    }
-    match layout.direction {
-        Direction::Horizontal => {
-            for pair in elements.windows(2) {
-                ccs.push((pair[0].x + pair[0].width) | EQ(REQUIRED) | pair[1].x);
-            }
-            for (i, size) in layout.constraints.iter().enumerate() {
-                ccs.push(elements[i].y | EQ(REQUIRED) | f64::from(dest_area.y));
-                ccs.push(elements[i].height | EQ(REQUIRED) | f64::from(dest_area.height));
-                ccs.push(match *size {
-                    Constraint::Length(v) => elements[i].width | EQ(WEAK) | f64::from(v),
-                    Constraint::Percentage(v) => {
-                        elements[i].width | EQ(WEAK) | (f64::from(v * dest_area.width) / 100.0)
-                    }
-                    Constraint::Ratio(n, d) => {
-                        elements[i].width
-                            | EQ(WEAK)
-                            | (f64::from(dest_area.width) * f64::from(n) / f64::from(d))
-                    }
-                    Constraint::Min(v) => elements[i].width | GE(WEAK) | f64::from(v),
-                    Constraint::Max(v) => elements[i].width | LE(WEAK) | f64::from(v),
-                });
-            }
-        }
-        Direction::Vertical => {
-            for pair in elements.windows(2) {
-                ccs.push((pair[0].y + pair[0].height) | EQ(REQUIRED) | pair[1].y);
-            }
-            for (i, size) in layout.constraints.iter().enumerate() {
-                ccs.push(elements[i].x | EQ(REQUIRED) | f64::from(dest_area.x));
-                ccs.push(elements[i].width | EQ(REQUIRED) | f64::from(dest_area.width));
-                ccs.push(match *size {
-                    Constraint::Length(v) => elements[i].height | EQ(WEAK) | f64::from(v),
-                    Constraint::Percentage(v) => {
-                        elements[i].height | EQ(WEAK) | (f64::from(v * dest_area.height) / 100.0)
-                    }
-                    Constraint::Ratio(n, d) => {
-                        elements[i].height
-                            | EQ(WEAK)
-                            | (f64::from(dest_area.height) * f64::from(n) / f64::from(d))
-                    }
-                    Constraint::Min(v) => elements[i].height | GE(WEAK) | f64::from(v),
-                    Constraint::Max(v) => elements[i].height | LE(WEAK) | f64::from(v),
-                });
-            }
-        }
-    }
-    solver.add_constraints(&ccs).unwrap();
-    for &(var, value) in solver.fetch_changes() {
-        let (index, attr) = vars[&var];
-        let value = if value.is_sign_negative() {
-            0
-        } else {
-            value as u16
-        };
-        match attr {
-            0 => {
-                results[index].x = value;
-            }
-            1 => {
-                results[index].y = value;
-            }
-            2 => {
-                results[index].width = value;
-            }
-            3 => {
-                results[index].height = value;
-            }
-            _ => {}
-        }
-    }
-
-    // Fix imprecision by extending the last item a bit if necessary
-    if let Some(last) = results.last_mut() {
-        match layout.direction {
-            Direction::Vertical => {
-                last.height = dest_area.bottom() - last.y;
-            }
-            Direction::Horizontal => {
-                last.width = dest_area.right() - last.x;
-            }
-        }
-    }
-    results
-}
-
-/// A container used by the solver inside split
-struct Element {
-    x: Variable,
-    y: Variable,
-    width: Variable,
-    height: Variable,
-}
-
-impl Element {
-    fn new() -> Element {
-        Element {
-            x: Variable::new(),
-            y: Variable::new(),
-            width: Variable::new(),
-            height: Variable::new(),
-        }
-    }
-
-    fn left(&self) -> Variable {
-        self.x
-    }
-
-    fn top(&self) -> Variable {
-        self.y
-    }
-
-    fn right(&self) -> Expression {
-        self.x + self.width
-    }
-
-    fn bottom(&self) -> Expression {
-        self.y + self.height
-    }
-}
-
-/// A simple rectangle used in the computation of the layout and to give widgets an hint about the
-/// area they are supposed to render to.
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub struct Rect {
-    pub x: u16,
-    pub y: u16,
-    pub width: u16,
-    pub height: u16,
-}
-
-impl Default for Rect {
-    fn default() -> Rect {
-        Rect {
-            x: 0,
-            y: 0,
-            width: 0,
-            height: 0,
-        }
-    }
-}
-
-impl Rect {
-    /// Creates a new rect, with width and height limited to keep the area under max u16.
-    /// If clipped, aspect ratio will be preserved.
-    pub fn new(x: u16, y: u16, width: u16, height: u16) -> Rect {
-        let max_area = u16::max_value();
-        let (clipped_width, clipped_height) =
-            if u32::from(width) * u32::from(height) > u32::from(max_area) {
-                let aspect_ratio = f64::from(width) / f64::from(height);
-                let max_area_f = f64::from(max_area);
-                let height_f = (max_area_f / aspect_ratio).sqrt();
-                let width_f = height_f * aspect_ratio;
-                (width_f as u16, height_f as u16)
-            } else {
-                (width, height)
-            };
-        Rect {
-            x,
-            y,
-            width: clipped_width,
-            height: clipped_height,
-        }
-    }
-
-    pub fn area(self) -> u16 {
-        self.width * self.height
-    }
-
-    pub fn left(self) -> u16 {
-        self.x
-    }
-
-    pub fn right(self) -> u16 {
-        self.x + self.width
-    }
-
-    pub fn top(self) -> u16 {
-        self.y
-    }
-
-    pub fn bottom(self) -> u16 {
-        self.y + self.height
-    }
-
-    pub fn inner(self, margin: &Margin) -> Rect {
-        if self.width < 2 * margin.horizontal || self.height < 2 * margin.vertical {
-            Rect::default()
-        } else {
-            Rect {
-                x: self.x + margin.horizontal,
-                y: self.y + margin.vertical,
-                width: self.width - 2 * margin.horizontal,
-                height: self.height - 2 * margin.vertical,
-            }
-        }
-    }
-
-    pub fn union(self, other: Rect) -> Rect {
-        let x1 = min(self.x, other.x);
-        let y1 = min(self.y, other.y);
-        let x2 = max(self.x + self.width, other.x + other.width);
-        let y2 = max(self.y + self.height, other.y + other.height);
-        Rect {
-            x: x1,
-            y: y1,
-            width: x2 - x1,
-            height: y2 - y1,
-        }
-    }
-
-    pub fn intersection(self, other: Rect) -> Rect {
-        let x1 = max(self.x, other.x);
-        let y1 = max(self.y, other.y);
-        let x2 = min(self.x + self.width, other.x + other.width);
-        let y2 = min(self.y + self.height, other.y + other.height);
-        Rect {
-            x: x1,
-            y: y1,
-            width: x2 - x1,
-            height: y2 - y1,
-        }
-    }
-
-    pub fn intersects(self, other: Rect) -> bool {
-        self.x < other.x + other.width
-            && self.x + self.width > other.x
-            && self.y < other.y + other.height
-            && self.y + self.height > other.y
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_vertical_split_by_height() {
-        let target = Rect {
-            x: 2,
-            y: 2,
-            width: 10,
-            height: 10,
-        };
-
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(
-                [
-                    Constraint::Percentage(10),
-                    Constraint::Max(5),
-                    Constraint::Min(1),
-                ]
-                .as_ref(),
-            )
-            .split(target);
-
-        assert_eq!(target.height, chunks.iter().map(|r| r.height).sum::<u16>());
-        chunks.windows(2).for_each(|w| assert!(w[0].y <= w[1].y));
-    }
-
-    #[test]
-    fn test_rect_size_truncation() {
-        for width in 256u16..300u16 {
-            for height in 256u16..300u16 {
-                let rect = Rect::new(0, 0, width, height);
-                rect.area(); // Should not panic.
-                assert!(rect.width < width || rect.height < height);
-                // The target dimensions are rounded down so the math will not be too precise
-                // but let's make sure the ratios don't diverge crazily.
-                assert!(
-                    (f64::from(rect.width) / f64::from(rect.height)
-                        - f64::from(width) / f64::from(height))
-                    .abs()
-                        < 1.0
-                )
-            }
-        }
-
-        // One dimension below 255, one above. Area above max u16.
-        let width = 900;
-        let height = 100;
-        let rect = Rect::new(0, 0, width, height);
-        assert_ne!(rect.width, 900);
-        assert_ne!(rect.height, 100);
-        assert!(rect.width < width || rect.height < height);
-    }
-
-    #[test]
-    fn test_rect_size_preservation() {
-        for width in 0..256u16 {
-            for height in 0..256u16 {
-                let rect = Rect::new(0, 0, width, height);
-                rect.area(); // Should not panic.
-                assert_eq!(rect.width, width);
-                assert_eq!(rect.height, height);
-            }
-        }
-
-        // One dimension below 255, one above. Area below max u16.
-        let rect = Rect::new(0, 0, 300, 100);
-        assert_eq!(rect.width, 300);
-        assert_eq!(rect.height, 100);
-    }
-}

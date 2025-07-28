@@ -1,16 +1,259 @@
-use tui::{
+use ratatui::{
     backend::TestBackend,
     buffer::Buffer,
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::{Color, Style},
     symbols,
-    text::Span,
-    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType::Line},
+    text::{self, Span},
+    widgets::{Axis, Block, Chart, Dataset, GraphType::Line},
     Terminal,
 };
+use rstest::rstest;
 
 fn create_labels<'a>(labels: &'a [&'a str]) -> Vec<Span<'a>> {
     labels.iter().map(|l| Span::from(*l)).collect()
+}
+
+#[track_caller]
+fn axis_test_case<'line, Lines>(
+    width: u16,
+    height: u16,
+    x_axis: Axis,
+    y_axis: Axis,
+    expected: Lines,
+) where
+    Lines: IntoIterator,
+    Lines::Item: Into<text::Line<'line>>,
+{
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let chart = Chart::new(vec![]).x_axis(x_axis).y_axis(y_axis);
+            f.render_widget(chart, f.size());
+        })
+        .unwrap();
+    terminal.backend().assert_buffer_lines(expected);
+}
+
+#[rstest]
+#[case(0, 0)]
+#[case(0, 1)]
+#[case(1, 0)]
+#[case(1, 1)]
+#[case(2, 2)]
+fn widgets_chart_can_render_on_small_areas(#[case] width: u16, #[case] height: u16) {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal
+        .draw(|f| {
+            let datasets = vec![Dataset::default()
+                .marker(symbols::Marker::Braille)
+                .style(Style::default().fg(Color::Magenta))
+                .data(&[(0.0, 0.0)])];
+            let chart = Chart::new(datasets)
+                .block(Block::bordered().title("Plot"))
+                .x_axis(
+                    Axis::default()
+                        .bounds([0.0, 0.0])
+                        .labels(create_labels(&["0.0", "1.0"])),
+                )
+                .y_axis(
+                    Axis::default()
+                        .bounds([0.0, 0.0])
+                        .labels(create_labels(&["0.0", "1.0"])),
+                );
+            f.render_widget(chart, f.size());
+        })
+        .unwrap();
+}
+
+#[rstest]
+#[case(
+    Some(("AAAA", "B")),
+    None,
+    Alignment::Left,
+    vec![
+        "          ",
+        "          ",
+        "          ",
+        "   ───────",
+        "AAA      B",
+    ],
+)]
+#[case(
+    Some(("A", "BBBB")),
+    None,
+    Alignment::Left,
+    vec![
+        "          ",
+        "          ",
+        "          ",
+        " ─────────",
+        "A     BBBB",
+    ],
+)]
+#[case(
+    Some(("AAAAAAAAAAA", "B")),
+    None,
+    Alignment::Left,
+    vec![
+        "          ",
+        "          ",
+        "          ",
+        "   ───────",
+        "AAA      B",
+    ],
+)]
+#[case(
+    Some(("A", "B")),
+    Some(("CCCCCCC", "D")),
+    Alignment::Left,
+    vec![
+        "D  │      ",
+        "   │      ",
+        "CCC│      ",
+        "   └──────",
+        "   A     B",
+    ],
+)]
+#[case(
+    Some(("AAAAAAAAAA", "B")),
+    Some(("C", "D")),
+    Alignment::Center,
+    vec![
+        "D  │      ",
+        "   │      ",
+        "C  │      ",
+        "   └──────",
+        "AAAAAAA  B",
+    ],
+)]
+#[case(
+    Some(("AAAAAAA", "B")),
+    Some(("C", "D")),
+    Alignment::Right,
+    vec![
+        "D│        ",
+        " │        ",
+        "C│        ",
+        " └────────",
+        " AAAAA   B",
+    ],
+)]
+#[case(
+    Some(("AAAAAAA", "BBBBBBB")),
+    Some(("C", "D")),
+    Alignment::Right,
+    vec![
+        "D│        ",
+        " │        ",
+        "C│        ",
+        " └────────",
+        " AAAAABBBB",
+    ],
+)]
+fn widgets_chart_handles_long_labels<'line, Lines>(
+    #[case] x_labels: Option<(&str, &str)>,
+    #[case] y_labels: Option<(&str, &str)>,
+    #[case] x_alignment: Alignment,
+    #[case] expected: Lines,
+) where
+    Lines: IntoIterator,
+    Lines::Item: Into<text::Line<'line>>,
+{
+    let mut x_axis = Axis::default().bounds([0.0, 1.0]);
+    if let Some((left_label, right_label)) = x_labels {
+        x_axis = x_axis
+            .labels(vec![Span::from(left_label), Span::from(right_label)])
+            .labels_alignment(x_alignment);
+    }
+    let mut y_axis = Axis::default().bounds([0.0, 1.0]);
+    if let Some((left_label, right_label)) = y_labels {
+        y_axis = y_axis.labels(vec![Span::from(left_label), Span::from(right_label)]);
+    }
+    axis_test_case(10, 5, x_axis, y_axis, expected);
+}
+
+#[rstest]
+#[case::left(
+    Alignment::Left,
+    vec![
+        "          ",
+        "          ",
+        "          ",
+        "   ───────",
+        "AAA   B  C",
+    ],
+)]
+#[case::center(
+    Alignment::Center,
+    vec![
+        "          ",
+        "          ",
+        "          ",
+        "  ────────",
+        "AAAA B   C",
+    ],
+)]
+#[case::right(
+    Alignment::Right,
+    vec![
+        "          ",
+        "          ",
+        "          ",
+        "──────────",
+        "AAA  B   C",
+    ],
+)]
+fn widgets_chart_handles_x_axis_labels_alignments<'line, Lines>(
+    #[case] y_alignment: Alignment,
+    #[case] expected: Lines,
+) where
+    Lines: IntoIterator,
+    Lines::Item: Into<text::Line<'line>>,
+{
+    let x_axis = Axis::default()
+        .labels(vec![Span::from("AAAA"), Span::from("B"), Span::from("C")])
+        .labels_alignment(y_alignment);
+    let y_axis = Axis::default();
+    axis_test_case(10, 5, x_axis, y_axis, expected);
+}
+
+#[rstest]
+#[case::left(Alignment::Left, [
+    "D   │               ",
+    "    │               ",
+    "C   │               ",
+    "    └───────────────",
+    "AAAAA              B",
+])]
+#[case::center(Alignment::Center, [
+    "  D │               ",
+    "    │               ",
+    "  C │               ",
+    "    └───────────────",
+    "AAAAA              B",
+])]
+#[case::right(Alignment::Right, [
+    "   D│               ",
+    "    │               ",
+    "   C│               ",
+    "    └───────────────",
+    "AAAAA              B",
+])]
+fn widgets_chart_handles_y_axis_labels_alignments<'line, Lines>(
+    #[case] y_alignment: Alignment,
+    #[case] expected: Lines,
+) where
+    Lines: IntoIterator,
+    Lines::Item: Into<text::Line<'line>>,
+{
+    let x_axis = Axis::default().labels(create_labels(&["AAAAA", "B"]));
+    let y_axis = Axis::default()
+        .labels(create_labels(&["C", "D"]))
+        .labels_alignment(y_alignment);
+    axis_test_case(20, 5, x_axis, y_axis, expected);
 }
 
 #[test]
@@ -25,7 +268,7 @@ fn widgets_chart_can_have_axis_with_zero_length_bounds() {
                 .style(Style::default().fg(Color::Magenta))
                 .data(&[(0.0, 0.0)])];
             let chart = Chart::new(datasets)
-                .block(Block::default().title("Plot").borders(Borders::ALL))
+                .block(Block::bordered().title("Plot"))
                 .x_axis(
                     Axis::default()
                         .bounds([0.0, 0.0])
@@ -65,7 +308,7 @@ fn widgets_chart_handles_overflows() {
                     (1_588_298_496.0, 1.0),
                 ])];
             let chart = Chart::new(datasets)
-                .block(Block::default().title("Plot").borders(Borders::ALL))
+                .block(Block::bordered().title("Plot"))
                 .x_axis(
                     Axis::default()
                         .bounds([1_588_298_471.0, 1_588_992_600.0])
@@ -98,11 +341,7 @@ fn widgets_chart_can_have_empty_datasets() {
         .draw(|f| {
             let datasets = vec![Dataset::default().data(&[]).graph_type(Line)];
             let chart = Chart::new(datasets)
-                .block(
-                    Block::default()
-                        .title("Empty Dataset With Line")
-                        .borders(Borders::ALL),
-                )
+                .block(Block::bordered().title("Empty Dataset With Line"))
                 .x_axis(
                     Axis::default()
                         .bounds([0.0, 0.0])
@@ -126,6 +365,7 @@ fn widgets_chart_can_have_empty_datasets() {
         .unwrap();
 }
 
+#[allow(clippy::too_many_lines)]
 #[test]
 fn widgets_chart_can_have_a_legend() {
     let backend = TestBackend::new(60, 30);
@@ -170,7 +410,7 @@ fn widgets_chart_can_have_a_legend() {
             ];
             let chart = Chart::new(datasets)
                 .style(Style::default().bg(Color::White))
-                .block(Block::default().title("Chart Test").borders(Borders::ALL))
+                .block(Block::bordered().title("Chart Test"))
                 .x_axis(
                     Axis::default()
                         .bounds([0.0, 100.0])
@@ -194,7 +434,7 @@ fn widgets_chart_can_have_a_legend() {
             );
         })
         .unwrap();
-    let mut expected = Buffer::with_lines(vec![
+    let mut expected = Buffer::with_lines([
         "┌Chart Test────────────────────────────────────────────────┐",
         "│10.0│Y Axis                                    ┌─────────┐│",
         "│    │  ••                                      │Dataset 1││",
@@ -223,14 +463,14 @@ fn widgets_chart_can_have_a_legend() {
         "│    │ ••                                               •• │",
         "│0.0 │•                                              X Axis│",
         "│    └─────────────────────────────────────────────────────│",
-        "│  0.0                      50.0                     100.0 │",
+        "│  0.0                        50.0                    100.0│",
         "└──────────────────────────────────────────────────────────┘",
     ]);
 
-    // Set expected backgound color
+    // Set expected background color
     for row in 0..30 {
         for col in 0..60 {
-            expected.get_mut(col, row).set_bg(Color::White);
+            expected[(col, row)].set_bg(Color::White);
         }
     }
 
@@ -292,10 +532,10 @@ fn widgets_chart_can_have_a_legend() {
         (57, 2),
     ];
     for (col, row) in line1 {
-        expected.get_mut(col, row).set_fg(Color::Blue);
+        expected[(col, row)].set_fg(Color::Blue);
     }
     for (col, row) in legend1 {
-        expected.get_mut(col, row).set_fg(Color::Blue);
+        expected[(col, row)].set_fg(Color::Blue);
     }
 
     // Set expected colors of the second dataset
@@ -363,17 +603,54 @@ fn widgets_chart_can_have_a_legend() {
         (57, 3),
     ];
     for (col, row) in line2 {
-        expected.get_mut(col, row).set_fg(Color::Green);
+        expected[(col, row)].set_fg(Color::Green);
     }
     for (col, row) in legend2 {
-        expected.get_mut(col, row).set_fg(Color::Green);
+        expected[(col, row)].set_fg(Color::Green);
     }
 
     // Set expected colors of the x axis
     let x_axis_title = vec![(53, 26), (54, 26), (55, 26), (56, 26), (57, 26), (58, 26)];
     for (col, row) in x_axis_title {
-        expected.get_mut(col, row).set_fg(Color::Yellow);
+        expected[(col, row)].set_fg(Color::Yellow);
     }
+    terminal.backend().assert_buffer(&expected);
+}
 
+#[test]
+fn widgets_chart_top_line_styling_is_correct() {
+    let backend = TestBackend::new(9, 5);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let title_style = Style::default().fg(Color::Red).bg(Color::LightRed);
+    let data_style = Style::default().fg(Color::Blue);
+
+    terminal
+        .draw(|f| {
+            let data: [(f64, f64); 2] = [(0.0, 1.0), (1.0, 1.0)];
+            let widget = Chart::new(vec![Dataset::default()
+                .data(&data)
+                .graph_type(ratatui::widgets::GraphType::Line)
+                .style(data_style)])
+            .y_axis(
+                Axis::default()
+                    .title(Span::styled("abc", title_style))
+                    .bounds([0.0, 1.0])
+                    .labels(create_labels(&["a", "b"])),
+            )
+            .x_axis(Axis::default().bounds([0.0, 1.0]));
+            f.render_widget(widget, f.size());
+        })
+        .unwrap();
+
+    let mut expected = Buffer::with_lines([
+        "b│abc••••",
+        " │       ",
+        " │       ",
+        " │       ",
+        "a│       ",
+    ]);
+    expected.set_style(Rect::new(2, 0, 3, 1), title_style);
+    expected.set_style(Rect::new(5, 0, 4, 1), data_style);
     terminal.backend().assert_buffer(&expected);
 }

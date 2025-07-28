@@ -1,23 +1,47 @@
-#[allow(dead_code)]
-mod util;
+//! # [Ratatui] `BarChart` example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use crate::util::event::{Event, Events};
-use std::{error::Error, io};
-use termion::{event::Key, input::MouseTerminal, raw::IntoRawMode, screen::AlternateScreen};
-use tui::{
-    backend::TermionBackend,
-    layout::{Constraint, Direction, Layout},
+use std::time::{Duration, Instant};
+
+use color_eyre::Result;
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{BarChart, Block, Borders},
-    Terminal,
+    terminal::Frame,
+    text::{Line, Span},
+    widgets::{Bar, BarChart, BarGroup, Block, Paragraph},
 };
+
+struct Company<'a> {
+    revenue: [u64; 4],
+    label: &'a str,
+    bar_style: Style,
+}
 
 struct App<'a> {
     data: Vec<(&'a str, u64)>,
+    months: [&'a str; 4],
+    companies: [Company<'a>; 3],
 }
 
+const TOTAL_REVENUE: &str = "Total Revenue";
+
 impl<'a> App<'a> {
-    fn new() -> App<'a> {
+    fn new() -> Self {
         App {
             data: vec![
                 ("B1", 9),
@@ -45,88 +69,200 @@ impl<'a> App<'a> {
                 ("B23", 3),
                 ("B24", 5),
             ],
+            companies: [
+                Company {
+                    label: "Comp.A",
+                    revenue: [9500, 12500, 5300, 8500],
+                    bar_style: Style::default().fg(Color::Green),
+                },
+                Company {
+                    label: "Comp.B",
+                    revenue: [1500, 2500, 3000, 500],
+                    bar_style: Style::default().fg(Color::Yellow),
+                },
+                Company {
+                    label: "Comp.C",
+                    revenue: [10500, 10600, 9000, 4200],
+                    bar_style: Style::default().fg(Color::White),
+                },
+            ],
+            months: ["Mars", "Apr", "May", "Jun"],
         }
     }
 
-    fn update(&mut self) {
+    fn on_tick(&mut self) {
         let value = self.data.pop().unwrap();
         self.data.insert(0, value);
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // Terminal initialization
-    let stdout = io::stdout().into_raw_mode()?;
-    let stdout = MouseTerminal::from(stdout);
-    let stdout = AlternateScreen::from(stdout);
-    let backend = TermionBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+fn main() -> Result<()> {
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?
+        .with_mouse_capture()?
+        .to_terminal()?;
 
-    // Setup event handlers
-    let events = Events::new();
-
-    // App
+    let tick_rate = Duration::from_millis(250);
     let mut app = App::new();
-
+    let mut last_tick = Instant::now();
     loop {
-        terminal.draw(|f| {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(2)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                .split(f.size());
-            let barchart = BarChart::default()
-                .block(Block::default().title("Data1").borders(Borders::ALL))
-                .data(&app.data)
-                .bar_width(9)
-                .bar_style(Style::default().fg(Color::Yellow))
-                .value_style(Style::default().fg(Color::Black).bg(Color::Yellow));
-            f.render_widget(barchart, chunks[0]);
+        terminal.draw(|f| ui(f, &app))?;
 
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                .split(chunks[1]);
-
-            let barchart = BarChart::default()
-                .block(Block::default().title("Data2").borders(Borders::ALL))
-                .data(&app.data)
-                .bar_width(5)
-                .bar_gap(3)
-                .bar_style(Style::default().fg(Color::Green))
-                .value_style(
-                    Style::default()
-                        .bg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                );
-            f.render_widget(barchart, chunks[0]);
-
-            let barchart = BarChart::default()
-                .block(Block::default().title("Data3").borders(Borders::ALL))
-                .data(&app.data)
-                .bar_style(Style::default().fg(Color::Red))
-                .bar_width(7)
-                .bar_gap(0)
-                .value_style(Style::default().bg(Color::Red))
-                .label_style(
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::ITALIC),
-                );
-            f.render_widget(barchart, chunks[1]);
-        })?;
-
-        match events.next()? {
-            Event::Input(input) => {
-                if input == Key::Char('q') {
-                    break;
+        let timeout = tick_rate.saturating_sub(last_tick.elapsed());
+        if crossterm::event::poll(timeout)? {
+            if let Event::Key(key) = event::read()? {
+                if key.code == KeyCode::Char('q') {
+                    return Ok(());
                 }
             }
-            Event::Tick => {
-                app.update();
-            }
+        }
+        if last_tick.elapsed() >= tick_rate {
+            app.on_tick();
+            last_tick = Instant::now();
         }
     }
+}
 
-    Ok(())
+fn ui(frame: &mut Frame, app: &App) {
+    let vertical = Layout::vertical([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)]);
+    let horizontal = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]);
+    let [top, bottom] = vertical.areas(frame.size());
+    let [left, right] = horizontal.areas(bottom);
+
+    let barchart = BarChart::default()
+        .block(Block::bordered().title("Data1"))
+        .data(&app.data)
+        .bar_width(9)
+        .bar_style(Style::default().fg(Color::Yellow))
+        .value_style(Style::default().fg(Color::Black).bg(Color::Yellow));
+
+    frame.render_widget(barchart, top);
+    draw_bar_with_group_labels(frame, app, left);
+    draw_horizontal_bars(frame, app, right);
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn create_groups<'a>(app: &'a App, combine_values_and_labels: bool) -> Vec<BarGroup<'a>> {
+    app.months
+        .iter()
+        .enumerate()
+        .map(|(i, &month)| {
+            let bars: Vec<Bar> = app
+                .companies
+                .iter()
+                .map(|c| {
+                    let mut bar = Bar::default()
+                        .value(c.revenue[i])
+                        .style(c.bar_style)
+                        .value_style(
+                            Style::default()
+                                .bg(c.bar_style.fg.unwrap())
+                                .fg(Color::Black),
+                        );
+
+                    if combine_values_and_labels {
+                        bar = bar.text_value(format!(
+                            "{} ({:.1} M)",
+                            c.label,
+                            (c.revenue[i] as f64) / 1000.
+                        ));
+                    } else {
+                        bar = bar
+                            .text_value(format!("{:.1}", (c.revenue[i] as f64) / 1000.))
+                            .label(c.label.into());
+                    }
+                    bar
+                })
+                .collect();
+            BarGroup::default()
+                .label(Line::from(month).centered())
+                .bars(&bars)
+        })
+        .collect()
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn draw_bar_with_group_labels(f: &mut Frame, app: &App, area: Rect) {
+    const LEGEND_HEIGHT: u16 = 6;
+
+    let groups = create_groups(app, false);
+
+    let mut barchart = BarChart::default()
+        .block(Block::bordered().title("Data1"))
+        .bar_width(7)
+        .group_gap(3);
+
+    for group in groups {
+        barchart = barchart.data(group);
+    }
+
+    f.render_widget(barchart, area);
+
+    if area.height >= LEGEND_HEIGHT && area.width >= TOTAL_REVENUE.len() as u16 + 2 {
+        let legend_width = TOTAL_REVENUE.len() as u16 + 2;
+        let legend_area = Rect {
+            height: LEGEND_HEIGHT,
+            width: legend_width,
+            y: area.y,
+            x: area.right() - legend_width,
+        };
+        draw_legend(f, legend_area);
+    }
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn draw_horizontal_bars(f: &mut Frame, app: &App, area: Rect) {
+    const LEGEND_HEIGHT: u16 = 6;
+
+    let groups = create_groups(app, true);
+
+    let mut barchart = BarChart::default()
+        .block(Block::bordered().title("Data1"))
+        .bar_width(1)
+        .group_gap(1)
+        .bar_gap(0)
+        .direction(Direction::Horizontal);
+
+    for group in groups {
+        barchart = barchart.data(group);
+    }
+
+    f.render_widget(barchart, area);
+
+    if area.height >= LEGEND_HEIGHT && area.width >= TOTAL_REVENUE.len() as u16 + 2 {
+        let legend_width = TOTAL_REVENUE.len() as u16 + 2;
+        let legend_area = Rect {
+            height: LEGEND_HEIGHT,
+            width: legend_width,
+            y: area.y,
+            x: area.right() - legend_width,
+        };
+        draw_legend(f, legend_area);
+    }
+}
+
+fn draw_legend(f: &mut Frame, area: Rect) {
+    let text = vec![
+        Line::from(Span::styled(
+            TOTAL_REVENUE,
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(Color::White),
+        )),
+        Line::from(Span::styled(
+            "- Company A",
+            Style::default().fg(Color::Green),
+        )),
+        Line::from(Span::styled(
+            "- Company B",
+            Style::default().fg(Color::Yellow),
+        )),
+        Line::from(Span::styled(
+            "- Company C",
+            Style::default().fg(Color::White),
+        )),
+    ];
+
+    let block = Block::bordered().style(Style::default().fg(Color::White));
+    let paragraph = Paragraph::new(text).block(block);
+    f.render_widget(paragraph, area);
 }

@@ -1,106 +1,87 @@
-#[allow(dead_code)]
-mod util;
+//! # [Ratatui] Popup example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use crate::util::event::{Event, Events};
-use std::{error::Error, io};
-use termion::{event::Key, input::MouseTerminal, raw::IntoRawMode, screen::AlternateScreen};
-use tui::{
-    backend::TermionBackend,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Span, Spans},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
-    Terminal,
+// See also https://github.com/joshka/tui-popup and
+// https://github.com/sephiroth74/tui-confirm-dialog
+
+use color_eyre::Result;
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    layout::{Constraint, Layout, Rect},
+    style::Stylize,
+    terminal::Frame,
+    widgets::{Block, Clear, Paragraph, Wrap},
 };
 
-/// helper function to create a centered rect using up
-/// certain percentage of the available rect `r`
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-            [
-                Constraint::Percentage((100 - percent_y) / 2),
-                Constraint::Percentage(percent_y),
-                Constraint::Percentage((100 - percent_y) / 2),
-            ]
-            .as_ref(),
-        )
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(
-            [
-                Constraint::Percentage((100 - percent_x) / 2),
-                Constraint::Percentage(percent_x),
-                Constraint::Percentage((100 - percent_x) / 2),
-            ]
-            .as_ref(),
-        )
-        .split(popup_layout[1])[1]
+struct App {
+    show_popup: bool,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // Terminal initialization
-    let stdout = io::stdout().into_raw_mode()?;
-    let stdout = MouseTerminal::from(stdout);
-    let stdout = AlternateScreen::from(stdout);
-    let backend = TermionBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+impl App {
+    const fn new() -> Self {
+        Self { show_popup: false }
+    }
+}
 
-    let events = Events::new();
+fn main() -> Result<()> {
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?
+        .with_mouse_capture()?
+        .to_terminal()?;
 
+    let mut app = App::new();
     loop {
-        terminal.draw(|f| {
-            let size = f.size();
 
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                .split(size);
-
-                let s = "Veeeeeeeeeeeeeeeery    loooooooooooooooooong   striiiiiiiiiiiiiiiiiiiiiiiiiing.   ";
-                let mut long_line = s.repeat(usize::from(size.width)*usize::from(size.height)/300);
-                long_line.push('\n');
-
-            let text = vec![
-                Spans::from("This is a line "),
-                Spans::from(Span::styled("This is a line   ", Style::default().fg(Color::Red))),
-                Spans::from(Span::styled("This is a line", Style::default().bg(Color::Blue))),
-                Spans::from(Span::styled(
-                    "This is a longer line\n",
-                    Style::default().add_modifier(Modifier::CROSSED_OUT),
-                )),
-                Spans::from(Span::styled(&long_line, Style::default().bg(Color::Green))),
-                Spans::from(Span::styled(
-                    "This is a line\n",
-                    Style::default().fg(Color::Green).add_modifier(Modifier::ITALIC),
-                )),
-            ];
-
-            let paragraph = Paragraph::new(text.clone())
-                .block(Block::default().title("Left Block").borders(Borders::ALL))
-                .alignment(Alignment::Left).wrap(Wrap { trim: true });
-            f.render_widget(paragraph, chunks[0]);
-
-            let paragraph = Paragraph::new(text)
-                .block(Block::default().title("Right Block").borders(Borders::ALL))
-                .alignment(Alignment::Left).wrap(Wrap { trim: true });
-            f.render_widget(paragraph, chunks[1]);
-
-            let block = Block::default().title("Popup").borders(Borders::ALL);
-            let area = centered_rect(60, 20, size);
-            f.render_widget(Clear, area); //this clears out the background
-            f.render_widget(block, area);
-        })?;
-
-        if let Event::Input(input) = events.next()? {
-            if let Key::Char('q') = input {
-                break;
             }
         }
     }
+}
 
-    Ok(())
+fn ui(f: &mut Frame, app: &App) {
+    let area = f.size();
+
+    let vertical = Layout::vertical([Constraint::Percentage(20), Constraint::Percentage(80)]);
+    let [instructions, content] = vertical.areas(area);
+
+    let text = if app.show_popup {
+        "Press p to close the popup"
+    } else {
+        "Press p to show the popup"
+    };
+
+    if app.show_popup {
+        let block = Block::bordered().title("Popup");
+        let area = centered_rect(60, 20, area);
+        f.render_widget(Clear, area); //this clears out the background
+        f.render_widget(block, area);
+    }
+}
+
+/// helper function to create a centered rect using up certain percentage of the available rect `r`
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::vertical([
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+    ])
+    .split(r);
+
+    Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .split(popup_layout[1])[1]
 }

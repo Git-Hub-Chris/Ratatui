@@ -1,6 +1,5 @@
 /// [Source data](http://www.gnuplotting.org/plotting-the-world-revisited)
-
-pub static WORLD_HIGH_RESOLUTION: [(f64, f64); 5125] = [
+pub const WORLD_HIGH_RESOLUTION: [(f64, f64); 5125] = [
     (-163.7128, -78.5956),
     (-163.1058, -78.2233),
     (-161.2451, -78.3801),
@@ -5128,7 +5127,7 @@ pub static WORLD_HIGH_RESOLUTION: [(f64, f64); 5125] = [
     (180.0, -84.71338),
 ];
 
-pub static WORLD_LOW_RESOLUTION: [(f64, f64); 1166] = [
+pub const WORLD_LOW_RESOLUTION: [(f64, f64); 1166] = [
     (-92.32, 48.24),
     (-88.13, 48.92),
     (-83.11, 46.27),
@@ -6122,6 +6121,7 @@ pub static WORLD_LOW_RESOLUTION: [(f64, f64); 1166] = [
     (120.43, 16.43),
     (121.72, 18.40),
     (125.34, 9.79),
+    #[allow(clippy::approx_constant)]
     (125.56, 6.28),
     (122.38, 7.00),
     (125.10, 9.38),

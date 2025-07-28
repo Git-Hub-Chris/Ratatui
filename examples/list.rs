@@ -1,193 +1,330 @@
-#[allow(dead_code)]
-mod util;
+//! # [Ratatui] List example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use crate::util::{
-    event::{Event, Events},
-    StatefulList,
-};
-use std::{error::Error, io};
-use termion::{event::Key, input::MouseTerminal, raw::IntoRawMode, screen::AlternateScreen};
-use tui::{
-    backend::TermionBackend,
-    layout::{Constraint, Corner, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Span, Spans},
-    widgets::{Block, Borders, List, ListItem},
-    Terminal,
+use color_eyre::Result;
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    buffer::Buffer,
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{palette::tailwind, Color, Modifier, Style, Stylize},
+    terminal::Terminal,
+    text::Line,
+    widgets::{
+        Block, Borders, HighlightSpacing, List, ListItem, ListState, Padding, Paragraph,
+        StatefulWidget, Widget, Wrap,
+    },
 };
 
-struct App<'a> {
-    items: StatefulList<(&'a str, usize)>,
-    events: Vec<(&'a str, &'a str)>,
+const TODO_HEADER_BG: Color = tailwind::BLUE.c950;
+const NORMAL_ROW_COLOR: Color = tailwind::SLATE.c950;
+const ALT_ROW_COLOR: Color = tailwind::SLATE.c900;
+const SELECTED_STYLE_FG: Color = tailwind::BLUE.c300;
+const TEXT_COLOR: Color = tailwind::SLATE.c200;
+const COMPLETED_TEXT_COLOR: Color = tailwind::GREEN.c500;
+
+#[derive(Copy, Clone)]
+enum Status {
+    Todo,
+    Completed,
 }
 
-impl<'a> App<'a> {
-    fn new() -> App<'a> {
-        App {
-            items: StatefulList::with_items(vec![
-                ("Item0", 1),
-                ("Item1", 2),
-                ("Item2", 1),
-                ("Item3", 3),
-                ("Item4", 1),
-                ("Item5", 4),
-                ("Item6", 1),
-                ("Item7", 3),
-                ("Item8", 1),
-                ("Item9", 6),
-                ("Item10", 1),
-                ("Item11", 3),
-                ("Item12", 1),
-                ("Item13", 2),
-                ("Item14", 1),
-                ("Item15", 1),
-                ("Item16", 4),
-                ("Item17", 1),
-                ("Item18", 5),
-                ("Item19", 4),
-                ("Item20", 1),
-                ("Item21", 2),
-                ("Item22", 1),
-                ("Item23", 3),
-                ("Item24", 1),
+struct TodoItem {
+    todo: String,
+    info: String,
+    status: Status,
+}
+
+impl TodoItem {
+    fn new(todo: &str, info: &str, status: Status) -> Self {
+        Self {
+            todo: todo.to_string(),
+            info: info.to_string(),
+            status,
+        }
+    }
+}
+
+struct TodoList {
+    state: ListState,
+    items: Vec<TodoItem>,
+    last_selected: Option<usize>,
+}
+
+/// This struct holds the current state of the app. In particular, it has the `items` field which is
+/// a wrapper around `ListState`. Keeping track of the items state let us render the associated
+/// widget with its state and have access to features such as natural scrolling.
+///
+/// Check the event handling at the bottom to see how to change the state on incoming events.
+/// Check the drawing logic for items on how to specify the highlighting style for selected items.
+struct App {
+    items: TodoList,
+}
+
+fn main() -> Result<()> {
+    let terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
+    App::new().run(terminal)
+}
+
+impl App {
+    fn new() -> Self {
+        Self {
+            items: TodoList::with_items(&[
+                ("Rewrite everything with Rust!", "I can't hold my inner voice. He tells me to rewrite the complete universe with Rust", Status::Todo),
+                ("Rewrite all of your tui apps with Ratatui", "Yes, you heard that right. Go and replace your tui with Ratatui.", Status::Completed),
+                ("Pet your cat", "Minnak loves to be pet by you! Don't forget to pet and give some treats!", Status::Todo),
+                ("Walk with your dog", "Max is bored, go walk with him!", Status::Todo),
+                ("Pay the bills", "Pay the train subscription!!!", Status::Completed),
+                ("Refactor list example", "If you see this info that means I completed this task!", Status::Completed),
             ]),
-            events: vec![
-                ("Event1", "INFO"),
-                ("Event2", "INFO"),
-                ("Event3", "CRITICAL"),
-                ("Event4", "ERROR"),
-                ("Event5", "INFO"),
-                ("Event6", "INFO"),
-                ("Event7", "WARNING"),
-                ("Event8", "INFO"),
-                ("Event9", "INFO"),
-                ("Event10", "INFO"),
-                ("Event11", "CRITICAL"),
-                ("Event12", "INFO"),
-                ("Event13", "INFO"),
-                ("Event14", "INFO"),
-                ("Event15", "INFO"),
-                ("Event16", "INFO"),
-                ("Event17", "ERROR"),
-                ("Event18", "ERROR"),
-                ("Event19", "INFO"),
-                ("Event20", "INFO"),
-                ("Event21", "WARNING"),
-                ("Event22", "INFO"),
-                ("Event23", "INFO"),
-                ("Event24", "WARNING"),
-                ("Event25", "INFO"),
-                ("Event26", "INFO"),
-            ],
         }
     }
 
-    fn advance(&mut self) {
-        let event = self.events.pop().unwrap();
-        self.events.insert(0, event);
-    }
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    // Terminal initialization
-    let stdout = io::stdout().into_raw_mode()?;
-    let stdout = MouseTerminal::from(stdout);
-    let stdout = AlternateScreen::from(stdout);
-    let backend = TermionBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    let events = Events::new();
-
-    // App
-    let mut app = App::new();
-
-    loop {
-        terminal.draw(|f| {
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                .split(f.size());
-
-            let items: Vec<ListItem> = app
-                .items
-                .items
-                .iter()
-                .map(|i| {
-                    let mut lines = vec![Spans::from(i.0)];
-                    for _ in 0..i.1 {
-                        lines.push(Spans::from(Span::styled(
-                            "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-                            Style::default().add_modifier(Modifier::ITALIC),
-                        )));
-                    }
-                    ListItem::new(lines).style(Style::default().fg(Color::Black).bg(Color::White))
-                })
-                .collect();
-            let items = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title("List"))
-                .highlight_style(
-                    Style::default()
-                        .bg(Color::LightGreen)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .highlight_symbol(">> ");
-            f.render_stateful_widget(items, chunks[0], &mut app.items.state);
-
-            let events: Vec<ListItem> = app
-                .events
-                .iter()
-                .map(|&(evt, level)| {
-                    let s = match level {
-                        "CRITICAL" => Style::default().fg(Color::Red),
-                        "ERROR" => Style::default().fg(Color::Magenta),
-                        "WARNING" => Style::default().fg(Color::Yellow),
-                        "INFO" => Style::default().fg(Color::Blue),
-                        _ => Style::default(),
-                    };
-                    let header = Spans::from(vec![
-                        Span::styled(format!("{:<9}", level), s),
-                        Span::raw(" "),
-                        Span::styled(
-                            "2020-01-01 10:00:00",
-                            Style::default().add_modifier(Modifier::ITALIC),
-                        ),
-                    ]);
-                    let log = Spans::from(vec![Span::raw(evt)]);
-                    ListItem::new(vec![
-                        Spans::from("-".repeat(chunks[1].width as usize)),
-                        header,
-                        Spans::from(""),
-                        log,
-                    ])
-                })
-                .collect();
-            let events_list = List::new(events)
-                .block(Block::default().borders(Borders::ALL).title("List"))
-                .start_corner(Corner::BottomLeft);
-            f.render_widget(events_list, chunks[1]);
-        })?;
-
-        match events.next()? {
-            Event::Input(input) => match input {
-                Key::Char('q') => {
-                    break;
-                }
-                Key::Left => {
-                    app.items.unselect();
-                }
-                Key::Down => {
-                    app.items.next();
-                }
-                Key::Up => {
-                    app.items.previous();
-                }
-                _ => {}
-            },
-            Event::Tick => {
-                app.advance();
+    /// Changes the status of the selected list item
+    fn change_status(&mut self) {
+        if let Some(i) = self.items.state.selected() {
+            self.items.items[i].status = match self.items.items[i].status {
+                Status::Completed => Status::Todo,
+                Status::Todo => Status::Completed,
             }
         }
     }
 
-    Ok(())
+    fn go_top(&mut self) {
+        self.items.state.select(Some(0));
+    }
+
+    fn go_bottom(&mut self) {
+        self.items.state.select(Some(self.items.items.len() - 1));
+    }
+}
+
+impl App {
+    fn run(mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
+        loop {
+            self.draw(&mut terminal)?;
+
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                        KeyCode::Char('h') | KeyCode::Left => self.items.unselect(),
+                        KeyCode::Char('j') | KeyCode::Down => self.items.next(),
+                        KeyCode::Char('k') | KeyCode::Up => self.items.previous(),
+                        KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter => {
+                            self.change_status();
+                        }
+                        KeyCode::Char('g') => self.go_top(),
+                        KeyCode::Char('G') => self.go_bottom(),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    fn draw(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
+        terminal.draw(|f| f.render_widget(self, f.size()))?;
+        Ok(())
+    }
+}
+
+impl Widget for &mut App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        // Create a space for header, todo list and the footer.
+        let vertical = Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Min(0),
+            Constraint::Length(2),
+        ]);
+        let [header_area, rest_area, footer_area] = vertical.areas(area);
+
+        // Create two chunks with equal vertical screen space. One for the list and the other for
+        // the info block.
+        let vertical = Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]);
+        let [upper_item_list_area, lower_item_list_area] = vertical.areas(rest_area);
+
+        render_title(header_area, buf);
+        self.render_todo(upper_item_list_area, buf);
+        self.render_info(lower_item_list_area, buf);
+        render_footer(footer_area, buf);
+    }
+}
+
+impl App {
+    fn render_todo(&mut self, area: Rect, buf: &mut Buffer) {
+        // We create two blocks, one is for the header (outer) and the other is for list (inner).
+        let outer_block = Block::new()
+            .borders(Borders::NONE)
+            .title_alignment(Alignment::Center)
+            .title("TODO List")
+            .fg(TEXT_COLOR)
+            .bg(TODO_HEADER_BG);
+        let inner_block = Block::new()
+            .borders(Borders::NONE)
+            .fg(TEXT_COLOR)
+            .bg(NORMAL_ROW_COLOR);
+
+        // We get the inner area from outer_block. We'll use this area later to render the table.
+        let outer_area = area;
+        let inner_area = outer_block.inner(outer_area);
+
+        // We can render the header in outer_area.
+        outer_block.render(outer_area, buf);
+
+        // Iterate through all elements in the `items` and stylize them.
+        let items: Vec<ListItem> = self
+            .items
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, todo_item)| todo_item.to_list_item(i))
+            .collect();
+
+        // Create a List from all list items and highlight the currently selected one
+        let items = List::new(items)
+            .block(inner_block)
+            .highlight_style(
+                Style::default()
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::REVERSED)
+                    .fg(SELECTED_STYLE_FG),
+            )
+            .highlight_symbol(">")
+            .highlight_spacing(HighlightSpacing::Always);
+
+        // We can now render the item list
+        items.render_stateful(inner_area, buf, &mut self.items.state);
+    }
+
+    fn render_info(&self, area: Rect, buf: &mut Buffer) {
+        // We get the info depending on the item's state.
+        let info = if let Some(i) = self.items.state.selected() {
+            match self.items.items[i].status {
+                Status::Completed => format!("✓ DONE: {}", self.items.items[i].info),
+                Status::Todo => format!("TODO: {}", self.items.items[i].info),
+            }
+        } else {
+            "Nothing to see here...".to_string()
+        };
+
+        // We show the list item's info under the list in this paragraph
+        let outer_info_block = Block::new()
+            .borders(Borders::NONE)
+            .title_alignment(Alignment::Center)
+            .title("TODO Info")
+            .fg(TEXT_COLOR)
+            .bg(TODO_HEADER_BG);
+        let inner_info_block = Block::new()
+            .borders(Borders::NONE)
+            .padding(Padding::horizontal(1))
+            .bg(NORMAL_ROW_COLOR);
+
+        // This is a similar process to what we did for list. outer_info_area will be used for
+        // header inner_info_area will be used for the list info.
+        let outer_info_area = area;
+        let inner_info_area = outer_info_block.inner(outer_info_area);
+
+        // We can render the header. Inner info will be rendered later
+        outer_info_block.render(outer_info_area, buf);
+
+        let info_paragraph = Paragraph::new(info)
+            .block(inner_info_block)
+            .fg(TEXT_COLOR)
+            .wrap(Wrap { trim: false });
+
+        // We can now render the item info
+        info_paragraph.render(inner_info_area, buf);
+    }
+}
+
+fn render_title(area: Rect, buf: &mut Buffer) {
+    Paragraph::new("Ratatui List Example")
+        .bold()
+        .centered()
+        .render(area, buf);
+}
+
+fn render_footer(area: Rect, buf: &mut Buffer) {
+    Paragraph::new("\nUse ↓↑ to move, ← to unselect, → to change status, g/G to go top/bottom.")
+        .centered()
+        .render(area, buf);
+}
+
+impl TodoList {
+    fn with_items(items: &[(&str, &str, Status)]) -> Self {
+        Self {
+            state: ListState::default(),
+            items: items
+                .iter()
+                .map(|(todo, info, status)| TodoItem::new(todo, info, *status))
+                .collect(),
+            last_selected: None,
+        }
+    }
+
+    fn next(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i >= self.items.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => self.last_selected.unwrap_or(0),
+        };
+        self.state.select(Some(i));
+    }
+
+    fn previous(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.items.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => self.last_selected.unwrap_or(0),
+        };
+        self.state.select(Some(i));
+    }
+
+    fn unselect(&mut self) {
+        let offset = self.state.offset();
+        self.last_selected = self.state.selected();
+        self.state.select(None);
+        *self.state.offset_mut() = offset;
+    }
+}
+
+impl TodoItem {
+    fn to_list_item(&self, index: usize) -> ListItem {
+        let bg_color = match index % 2 {
+            0 => NORMAL_ROW_COLOR,
+            _ => ALT_ROW_COLOR,
+        };
+        let line = match self.status {
+            Status::Todo => Line::styled(format!(" ☐ {}", self.todo), TEXT_COLOR),
+            Status::Completed => Line::styled(
+                format!(" ✓ {}", self.todo),
+                (COMPLETED_TEXT_COLOR, bg_color),
+            ),
+        };
+
+        ListItem::new(line).bg(bg_color)
+    }
 }
