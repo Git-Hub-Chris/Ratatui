@@ -265,17 +265,7 @@ name = "demo"
 doc-scrape-examples = false
 
 [[example]]
-name = "demo2"
-required-features = ["crossterm", "widget-calendar"]
-doc-scrape-examples = true
 
-[[example]]
-name = "docsrs"
-required-features = ["crossterm"]
-doc-scrape-examples = false
-
-[[example]]
-name = "flex"
 required-features = ["crossterm"]
 doc-scrape-examples = true
 
@@ -371,12 +361,3 @@ name = "tracing"
 required-features = ["crossterm"]
 doc-scrape-examples = true
 
-[[example]]
-name = "user_input"
-required-features = ["crossterm"]
-doc-scrape-examples = true
-
-
-[[test]]
-name = "state_serde"
-required-features = ["serde"]
