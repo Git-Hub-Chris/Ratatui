@@ -1,51 +1,170 @@
 #![warn(missing_docs)]
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt};
 
 use itertools::{Itertools, Position};
 
-use crate::{prelude::*, widgets::Widget};
+use crate::{prelude::*, style::Styled};
 
-/// A string split over multiple lines where each line is composed of several clusters, each with
-/// their own style.
+/// A string split over one or more lines.
 ///
-/// A [`Text`], like a [`Line`], can be constructed using one of the many `From` implementations
-/// or via the [`Text::raw`] and [`Text::styled`] methods. Helpfully, [`Text`] also implements
+/// [`Text`] is used wherever text is displayed in the terminal and represents one or more [`Line`]s
+/// of text. When a [`Text`] is rendered, each line is rendered as a single line of text from top to
+/// bottom of the area. The text can be styled and aligned.
+///
+/// # Constructor Methods
+///
+/// - [`Text::raw`] creates a `Text` (potentially multiple lines) with no style.
+/// - [`Text::styled`] creates a `Text` (potentially multiple lines) with a style.
+/// - [`Text::default`] creates a `Text` with empty content and the default style.
+///
+/// # Conversion Methods
+///
+/// - [`Text::from`] creates a `Text` from a `String`.
+/// - [`Text::from`] creates a `Text` from a `&str`.
+/// - [`Text::from`] creates a `Text` from a `Cow<str>`.
+/// - [`Text::from`] creates a `Text` from a [`Span`].
+/// - [`Text::from`] creates a `Text` from a [`Line`].
+/// - [`Text::from`] creates a `Text` from a `Vec<Line>`.
+/// - [`Text::from_iter`] creates a `Text` from an iterator of items that can be converted into
+///   `Line`.
+///
+/// # Setter Methods
+///
+/// These methods are fluent setters. They return a `Text` with the property set.
+///
+/// - [`Text::style`] sets the style of this `Text`.
+/// - [`Text::alignment`] sets the alignment for this `Text`.
+/// - [`Text::left_aligned`] sets the alignment to [`Alignment::Left`].
+/// - [`Text::centered`] sets the alignment to [`Alignment::Center`].
+/// - [`Text::right_aligned`] sets the alignment to [`Alignment::Right`].
+///
+/// # Iteration Methods
+///
+/// - [`Text::iter`] returns an iterator over the lines of the text.
+/// - [`Text::iter_mut`] returns an iterator that allows modifying each line.
+/// - [`Text::into_iter`] returns an iterator over the lines of the text.
+///
+/// # Other Methods
+///
+/// - [`Text::width`] returns the max width of all the lines.
+/// - [`Text::height`] returns the height.
+/// - [`Text::patch_style`] patches the style of this `Text`, adding modifiers from the given style.
+/// - [`Text::reset_style`] resets the style of the `Text`.
+/// - [`Text::push_line`] adds a line to the text.
+/// - [`Text::push_span`] adds a span to the last line of the text.
+///
+/// # Examples
+///
+/// ## Creating Text
+///
+/// A [`Text`], like a [`Line`], can be constructed using one of the many `From` implementations or
+/// via the [`Text::raw`] and [`Text::styled`] methods. Helpfully, [`Text`] also implements
 /// [`core::iter::Extend`] which enables the concatenation of several [`Text`] blocks.
+///
+/// ```rust
+/// use std::{borrow::Cow, iter};
+///
+/// use ratatui::prelude::*;
+///
+/// let style = Style::new().yellow().italic();
+/// let text = Text::raw("The first line\nThe second line").style(style);
+/// let text = Text::styled("The first line\nThe second line", style);
+/// let text = Text::styled(
+///     "The first line\nThe second line",
+///     (Color::Yellow, Modifier::ITALIC),
+/// );
+///
+/// let text = Text::from("The first line\nThe second line");
+/// let text = Text::from(String::from("The first line\nThe second line"));
+/// let text = Text::from(Cow::Borrowed("The first line\nThe second line"));
+/// let text = Text::from(Span::styled("The first line\nThe second line", style));
+/// let text = Text::from(Line::from("The first line"));
+/// let text = Text::from(vec![
+///     Line::from("The first line"),
+///     Line::from("The second line"),
+/// ]);
+/// let text = Text::from_iter(iter::once("The first line").chain(iter::once("The second line")));
+///
+/// let mut text = Text::default();
+/// text.extend(vec![
+///     Line::from("The first line"),
+///     Line::from("The second line"),
+/// ]);
+/// text.extend(Text::from("The third line\nThe fourth line"));
+/// ```
+///
+/// ## Styling Text
 ///
 /// The text's [`Style`] is used by the rendering widget to determine how to style the text. Each
 /// [`Line`] in the text will be styled with the [`Style`] of the text, and then with its own
 /// [`Style`]. `Text` also implements [`Styled`] which means you can use the methods of the
 /// [`Stylize`] trait.
 ///
-/// The text's [`Alignment`] can be set using [`Text::alignment`]. Lines composing the text can
-/// also be individually aligned with [`Line::alignment`].
+/// ```rust
+/// # use ratatui::prelude::*;
+/// let text = Text::from("The first line\nThe second line").style(Style::new().yellow().italic());
+/// let text = Text::from("The first line\nThe second line")
+///     .yellow()
+///     .italic();
+/// let text = Text::from(vec![
+///     Line::from("The first line").yellow(),
+///     Line::from("The second line").yellow(),
+/// ])
+/// .italic();
+/// ```
 ///
-/// `Text` implements the [`Widget`] trait, which means it can be rendered to a [`Buffer`].
+/// ## Aligning Text
+/// The text's [`Alignment`] can be set using [`Text::alignment`] or the related helper methods.
+/// Lines composing the text can also be individually aligned with [`Line::alignment`].
+///
+/// ```rust
+/// # use ratatui::prelude::*;
+/// let text = Text::from("The first line\nThe second line").alignment(Alignment::Right);
+/// let text = Text::from("The first line\nThe second line").right_aligned();
+/// let text = Text::from(vec![
+///     Line::from("The first line").left_aligned(),
+///     Line::from("The second line").right_aligned(),
+///     Line::from("The third line"),
+/// ])
+/// .centered();
+/// ```
+///
+/// ## Rendering Text
+/// `Text` implements the [`Widget`] trait, which means it can be rendered to a [`Buffer`] or to a
+/// [`Frame`].
+///
+/// ```rust
+/// # use ratatui::prelude::*;
+/// // within another widget's `render` method:
+/// # fn render(area: Rect, buf: &mut Buffer) {
+/// let text = Text::from("The first line\nThe second line");
+/// text.render(area, buf);
+/// # }
+///
+/// // within a terminal.draw closure:
+/// # fn draw(frame: &mut Frame, area: Rect) {
+/// let text = Text::from("The first line\nThe second line");
+/// frame.render_widget(text, area);
+/// # }
+/// ```
+///
+/// ## Rendering Text with a Paragraph Widget
+///
 /// Usually apps will use the [`Paragraph`] widget instead of rendering a `Text` directly as it
 /// provides more functionality.
 ///
-/// [`Paragraph`]: crate::widgets::Paragraph
-/// [`Widget`]: crate::widgets::Widget
-///
 /// ```rust
-/// use ratatui::prelude::*;
-///
-/// let style = Style::default()
-///     .fg(Color::Yellow)
-///     .add_modifier(Modifier::ITALIC);
-///
-/// // An initial two lines of `Text` built from a `&str`
-/// let mut text = Text::from("The first line\nThe second line");
-/// assert_eq!(2, text.height());
-///
-/// // Adding two more unstyled lines
-/// text.extend(Text::raw("These are two\nmore lines!"));
-/// assert_eq!(4, text.height());
-///
-/// // Adding a final two styled lines
-/// text.extend(Text::styled("Some more lines\nnow with more style!", style));
-/// assert_eq!(6, text.height());
+/// # use ratatui::{prelude::*, widgets::*};
+/// # fn render(area: Rect, buf: &mut Buffer) {
+/// let text = Text::from("The first line\nThe second line");
+/// let paragraph = Paragraph::new(text)
+///     .wrap(Wrap { trim: true })
+///     .scroll((1, 1))
+///     .render(area, buf);
+/// # }
 /// ```
+///
+/// [`Paragraph`]: crate::widgets::Paragraph
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
 pub struct Text<'a> {
     /// The lines that make up this piece of text.
@@ -59,14 +178,14 @@ pub struct Text<'a> {
 impl<'a> Text<'a> {
     /// Create some text (potentially multiple lines) with no style.
     ///
-    /// ## Examples
+    /// # Examples
     ///
     /// ```rust
     /// # use ratatui::prelude::*;
     /// Text::raw("The first line\nThe second line");
     /// Text::raw(String::from("The first line\nThe second line"));
     /// ```
-    pub fn raw<T>(content: T) -> Text<'a>
+    pub fn raw<T>(content: T) -> Self
     where
         T: Into<Cow<'a, str>>,
     {
@@ -76,8 +195,7 @@ impl<'a> Text<'a> {
             Cow::Owned(s) if s.is_empty() => vec![Line::from("")],
             Cow::Owned(s) => s.lines().map(|l| Line::from(l.to_owned())).collect(),
         };
-
-        Text::from(lines)
+        Self::from(lines)
     }
 
     /// Create some text (potentially multiple lines) with a style.
@@ -95,17 +213,17 @@ impl<'a> Text<'a> {
     /// Text::styled("The first line\nThe second line", style);
     /// Text::styled(String::from("The first line\nThe second line"), style);
     /// ```
-    pub fn styled<T, S>(content: T, style: S) -> Text<'a>
+    pub fn styled<T, S>(content: T, style: S) -> Self
     where
         T: Into<Cow<'a, str>>,
         S: Into<Style>,
     {
-        Text::raw(content).patch_style(style)
+        Self::raw(content).patch_style(style)
     }
 
     /// Returns the max width of all the lines.
     ///
-    /// ## Examples
+    /// # Examples
     ///
     /// ```rust
     /// # use ratatui::prelude::*;
@@ -113,12 +231,12 @@ impl<'a> Text<'a> {
     /// assert_eq!(15, text.width());
     /// ```
     pub fn width(&self) -> usize {
-        self.lines.iter().map(Line::width).max().unwrap_or_default()
+        self.iter().map(Line::width).max().unwrap_or_default()
     }
 
     /// Returns the height.
     ///
-    /// ## Examples
+    /// # Examples
     ///
     /// ```rust
     /// # use ratatui::prelude::*;
@@ -191,7 +309,7 @@ impl<'a> Text<'a> {
     ///
     /// This is a fluent setter method which must be chained or used as it consumes self
     ///
-    /// ## Examples
+    /// # Examples
     ///
     /// ```rust
     /// # use ratatui::prelude::*;
@@ -211,6 +329,8 @@ impl<'a> Text<'a> {
     /// Sets the alignment for this text.
     ///
     /// Defaults to: [`None`], meaning the alignment is determined by the rendering widget.
+    /// Setting the alignment of a Text generally overrides the alignment of its
+    /// parent Widget.
     ///
     /// Alignment can be set individually on each line to override this text's alignment.
     ///
@@ -256,49 +376,111 @@ impl<'a> Text<'a> {
             ..self
         }
     }
-}
 
-impl<'a> From<String> for Text<'a> {
-    fn from(s: String) -> Text<'a> {
-        Text::raw(s)
+    /// Left-aligns the whole text.
+    ///
+    /// Convenience shortcut for `Text::alignment(Alignment::Left)`.
+    /// Setting the alignment of a Text generally overrides the alignment of its
+    /// parent Widget, with the default alignment being inherited from the parent.
+    ///
+    /// Alignment can be set individually on each line to override this text's alignment.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let text = Text::from("Hi, what's up?").left_aligned();
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn left_aligned(self) -> Self {
+        self.alignment(Alignment::Left)
     }
-}
 
-impl<'a> From<&'a str> for Text<'a> {
-    fn from(s: &'a str) -> Text<'a> {
-        Text::raw(s)
+    /// Center-aligns the whole text.
+    ///
+    /// Convenience shortcut for `Text::alignment(Alignment::Center)`.
+    /// Setting the alignment of a Text generally overrides the alignment of its
+    /// parent Widget, with the default alignment being inherited from the parent.
+    ///
+    /// Alignment can be set individually on each line to override this text's alignment.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let text = Text::from("Hi, what's up?").centered();
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn centered(self) -> Self {
+        self.alignment(Alignment::Center)
     }
-}
 
-impl<'a> From<Cow<'a, str>> for Text<'a> {
-    fn from(s: Cow<'a, str>) -> Text<'a> {
-        Text::raw(s)
+    /// Right-aligns the whole text.
+    ///
+    /// Convenience shortcut for `Text::alignment(Alignment::Right)`.
+    /// Setting the alignment of a Text generally overrides the alignment of its
+    /// parent Widget, with the default alignment being inherited from the parent.
+    ///
+    /// Alignment can be set individually on each line to override this text's alignment.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let text = Text::from("Hi, what's up?").right_aligned();
+    /// ```
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn right_aligned(self) -> Self {
+        self.alignment(Alignment::Right)
     }
-}
 
-impl<'a> From<Span<'a>> for Text<'a> {
-    fn from(span: Span<'a>) -> Text<'a> {
-        Text {
-            lines: vec![Line::from(span)],
-            ..Default::default()
-        }
+    /// Returns an iterator over the lines of the text.
+    pub fn iter(&self) -> std::slice::Iter<Line<'a>> {
+        self.lines.iter()
     }
-}
 
-impl<'a> From<Line<'a>> for Text<'a> {
-    fn from(line: Line<'a>) -> Text<'a> {
-        Text {
-            lines: vec![line],
-            ..Default::default()
-        }
+    /// Returns an iterator that allows modifying each line.
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<Line<'a>> {
+        self.lines.iter_mut()
     }
-}
 
-impl<'a> From<Vec<Line<'a>>> for Text<'a> {
-    fn from(lines: Vec<Line<'a>>) -> Text<'a> {
-        Text {
-            lines,
-            ..Default::default()
+    /// Adds a line to the text.
+    ///
+    /// `line` can be any type that can be converted into a `Line`. For example, you can pass a
+    /// `&str`, a `String`, a `Span`, or a `Line`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let mut text = Text::from("Hello, world!");
+    /// text.push_line(Line::from("How are you?"));
+    /// text.push_line(Span::from("How are you?"));
+    /// text.push_line("How are you?");
+    /// ```
+    pub fn push_line<T: Into<Line<'a>>>(&mut self, line: T) {
+        self.lines.push(line.into());
+    }
+
+    /// Adds a span to the last line of the text.
+    ///
+    /// `span` can be any type that is convertible into a `Span`. For example, you can pass a
+    /// `&str`, a `String`, or a `Span`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ratatui::prelude::*;
+    /// let mut text = Text::from("Hello, world!");
+    /// text.push_span(Span::from("How are you?"));
+    /// text.push_span("How are you?");
+    /// ```
+    pub fn push_span<T: Into<Span<'a>>>(&mut self, span: T) {
+        let span = span.into();
+        if let Some(last) = self.lines.last_mut() {
+            last.push_span(span);
+        } else {
+            self.lines.push(Line::from(span));
         }
     }
 }
@@ -312,6 +494,82 @@ impl<'a> IntoIterator for Text<'a> {
     }
 }
 
+impl<'a> IntoIterator for &'a Text<'a> {
+    type Item = &'a Line<'a>;
+    type IntoIter = std::slice::Iter<'a, Line<'a>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut Text<'a> {
+    type Item = &'a mut Line<'a>;
+    type IntoIter = std::slice::IterMut<'a, Line<'a>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+impl<'a> From<String> for Text<'a> {
+    fn from(s: String) -> Self {
+        Self::raw(s)
+    }
+}
+
+impl<'a> From<&'a str> for Text<'a> {
+    fn from(s: &'a str) -> Self {
+        Self::raw(s)
+    }
+}
+
+impl<'a> From<Cow<'a, str>> for Text<'a> {
+    fn from(s: Cow<'a, str>) -> Self {
+        Self::raw(s)
+    }
+}
+
+impl<'a> From<Span<'a>> for Text<'a> {
+    fn from(span: Span<'a>) -> Self {
+        Self {
+            lines: vec![Line::from(span)],
+            ..Default::default()
+        }
+    }
+}
+
+impl<'a> From<Line<'a>> for Text<'a> {
+    fn from(line: Line<'a>) -> Self {
+        Self {
+            lines: vec![line],
+            ..Default::default()
+        }
+    }
+}
+
+impl<'a> From<Vec<Line<'a>>> for Text<'a> {
+    fn from(lines: Vec<Line<'a>>) -> Self {
+        Self {
+            lines,
+            ..Default::default()
+        }
+    }
+}
+
+impl<'a, T> FromIterator<T> for Text<'a>
+where
+    T: Into<Line<'a>>,
+{
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let lines = iter.into_iter().map(Into::into).collect();
+        Self {
+            lines,
+            ..Default::default()
+        }
+    }
+}
+
 impl<'a, T> Extend<T> for Text<'a>
 where
     T: Into<Line<'a>>,
@@ -322,9 +580,9 @@ where
     }
 }
 
-impl std::fmt::Display for Text<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (position, line) in self.lines.iter().with_position() {
+impl fmt::Display for Text<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (position, line) in self.iter().with_position() {
             if position == Position::Last {
                 write!(f, "{line}")?;
             } else {
@@ -335,10 +593,17 @@ impl std::fmt::Display for Text<'_> {
     }
 }
 
-impl<'a> Widget for Text<'a> {
+impl Widget for Text<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        self.render_ref(area, buf);
+    }
+}
+
+impl WidgetRef for Text<'_> {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+        let area = area.intersection(buf.area);
         buf.set_style(area, self.style);
-        for (line, row) in self.lines.into_iter().zip(area.rows()) {
+        for (line, row) in self.iter().zip(area.rows()) {
             let line_width = line.width() as u16;
 
             let x_offset = match (self.alignment, line.alignment) {
@@ -360,7 +625,7 @@ impl<'a> Widget for Text<'a> {
 }
 
 impl<'a> Styled for Text<'a> {
-    type Item = Text<'a>;
+    type Item = Self;
 
     fn style(&self) -> Style {
         self.style
@@ -373,8 +638,16 @@ impl<'a> Styled for Text<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
+
+    use rstest::{fixture, rstest};
+
     use super::*;
-    use crate::style::Stylize;
+
+    #[fixture]
+    fn small_buf() -> Buffer {
+        Buffer::empty(Rect::new(0, 0, 10, 1))
+    }
 
     #[test]
     fn raw() {
@@ -480,6 +753,26 @@ mod tests {
             Line::from("The first line"),
             Line::from("The second line"),
         ]);
+        assert_eq!(
+            text.lines,
+            vec![Line::from("The first line"), Line::from("The second line")]
+        );
+    }
+
+    #[test]
+    fn from_iterator() {
+        let text = Text::from_iter(vec!["The first line", "The second line"]);
+        assert_eq!(
+            text.lines,
+            vec![Line::from("The first line"), Line::from("The second line")]
+        );
+    }
+
+    #[test]
+    fn collect() {
+        let text: Text = iter::once("The first line")
+            .chain(iter::once("The second line"))
+            .collect();
         assert_eq!(
             text.lines,
             vec![Line::from("The first line"), Line::from("The second line")]
@@ -603,60 +896,114 @@ mod tests {
         assert_eq!(Text::default().italic().style, Modifier::ITALIC.into());
     }
 
+    #[test]
+    fn left_aligned() {
+        let text = Text::from("Hello, world!").left_aligned();
+        assert_eq!(text.alignment, Some(Alignment::Left));
+    }
+
+    #[test]
+    fn centered() {
+        let text = Text::from("Hello, world!").centered();
+        assert_eq!(text.alignment, Some(Alignment::Center));
+    }
+
+    #[test]
+    fn right_aligned() {
+        let text = Text::from("Hello, world!").right_aligned();
+        assert_eq!(text.alignment, Some(Alignment::Right));
+    }
+
+    #[test]
+    fn push_line() {
+        let mut text = Text::from("A");
+        text.push_line(Line::from("B"));
+        text.push_line(Span::from("C"));
+        text.push_line("D");
+        assert_eq!(
+            text.lines,
+            vec![
+                Line::raw("A"),
+                Line::raw("B"),
+                Line::raw("C"),
+                Line::raw("D")
+            ]
+        );
+    }
+
+    #[test]
+    fn push_line_empty() {
+        let mut text = Text::default();
+        text.push_line(Line::from("Hello, world!"));
+        assert_eq!(text.lines, vec![Line::from("Hello, world!")]);
+    }
+
+    #[test]
+    fn push_span() {
+        let mut text = Text::from("A");
+        text.push_span(Span::raw("B"));
+        text.push_span("C");
+        assert_eq!(
+            text.lines,
+            vec![Line::from(vec![
+                Span::raw("A"),
+                Span::raw("B"),
+                Span::raw("C")
+            ])],
+        );
+    }
+
+    #[test]
+    fn push_span_empty() {
+        let mut text = Text::default();
+        text.push_span(Span::raw("Hello, world!"));
+        assert_eq!(text.lines, vec![Line::from(Span::raw("Hello, world!"))],);
+    }
+
     mod widget {
         use super::*;
-        use crate::{assert_buffer_eq, style::Color};
 
         #[test]
         fn render() {
             let text = Text::from("foo");
-
             let area = Rect::new(0, 0, 5, 1);
             let mut buf = Buffer::empty(area);
             text.render(area, &mut buf);
+            assert_eq!(buf, Buffer::with_lines(["foo  "]));
+        }
 
-            let expected_buf = Buffer::with_lines(vec!["foo  "]);
-
-            assert_buffer_eq!(buf, expected_buf);
+        #[rstest]
+        fn render_out_of_bounds(mut small_buf: Buffer) {
+            let out_of_bounds_area = Rect::new(20, 20, 10, 1);
+            Text::from("Hello, world!").render(out_of_bounds_area, &mut small_buf);
+            assert_eq!(small_buf, Buffer::empty(small_buf.area));
         }
 
         #[test]
         fn render_right_aligned() {
             let text = Text::from("foo").alignment(Alignment::Right);
-
             let area = Rect::new(0, 0, 5, 1);
             let mut buf = Buffer::empty(area);
             text.render(area, &mut buf);
-
-            let expected_buf = Buffer::with_lines(vec!["  foo"]);
-
-            assert_buffer_eq!(buf, expected_buf);
+            assert_eq!(buf, Buffer::with_lines(["  foo"]));
         }
 
         #[test]
         fn render_centered_odd() {
             let text = Text::from("foo").alignment(Alignment::Center);
-
             let area = Rect::new(0, 0, 5, 1);
             let mut buf = Buffer::empty(area);
             text.render(area, &mut buf);
-
-            let expected_buf = Buffer::with_lines(vec![" foo "]);
-
-            assert_buffer_eq!(buf, expected_buf);
+            assert_eq!(buf, Buffer::with_lines([" foo "]));
         }
 
         #[test]
         fn render_centered_even() {
             let text = Text::from("foo").alignment(Alignment::Center);
-
             let area = Rect::new(0, 0, 6, 1);
             let mut buf = Buffer::empty(area);
             text.render(area, &mut buf);
-
-            let expected_buf = Buffer::with_lines(vec![" foo  "]);
-
-            assert_buffer_eq!(buf, expected_buf);
+            assert_eq!(buf, Buffer::with_lines([" foo  "]));
         }
 
         #[test]
@@ -666,14 +1013,10 @@ mod tests {
                 Line::from("bar").alignment(Alignment::Center),
             ])
             .alignment(Alignment::Right);
-
             let area = Rect::new(0, 0, 5, 2);
             let mut buf = Buffer::empty(area);
             text.render(area, &mut buf);
-
-            let expected_buf = Buffer::with_lines(vec!["  foo", " bar "]);
-
-            assert_buffer_eq!(buf, expected_buf);
+            assert_eq!(buf, Buffer::with_lines(["  foo", " bar "]));
         }
 
         #[test]
@@ -682,10 +1025,9 @@ mod tests {
             let mut buf = Buffer::empty(area);
             Text::from("foo".on_blue()).render(area, &mut buf);
 
-            let mut expected = Buffer::with_lines(vec!["foo  "]);
+            let mut expected = Buffer::with_lines(["foo  "]);
             expected.set_style(Rect::new(0, 0, 3, 1), Style::new().bg(Color::Blue));
-
-            assert_buffer_eq!(buf, expected);
+            assert_eq!(buf, expected);
         }
 
         #[test]
@@ -693,10 +1035,97 @@ mod tests {
             let mut buf = Buffer::empty(Rect::new(0, 0, 6, 1));
             Text::from("foobar".on_blue()).render(Rect::new(0, 0, 3, 1), &mut buf);
 
-            let mut expected = Buffer::with_lines(vec!["foo   "]);
+            let mut expected = Buffer::with_lines(["foo   "]);
             expected.set_style(Rect::new(0, 0, 3, 1), Style::new().bg(Color::Blue));
+            assert_eq!(buf, expected);
+        }
+    }
 
-            assert_buffer_eq!(buf, expected);
+    mod iterators {
+        use super::*;
+
+        /// a fixture used in the tests below to avoid repeating the same setup
+        #[fixture]
+        fn hello_world() -> Text<'static> {
+            Text::from(vec![
+                Line::styled("Hello ", Color::Blue),
+                Line::styled("world!", Color::Green),
+            ])
+        }
+
+        #[rstest]
+        fn iter(hello_world: Text<'_>) {
+            let mut iter = hello_world.iter();
+            assert_eq!(iter.next(), Some(&Line::styled("Hello ", Color::Blue)));
+            assert_eq!(iter.next(), Some(&Line::styled("world!", Color::Green)));
+            assert_eq!(iter.next(), None);
+        }
+
+        #[rstest]
+        fn iter_mut(mut hello_world: Text<'_>) {
+            let mut iter = hello_world.iter_mut();
+            assert_eq!(iter.next(), Some(&mut Line::styled("Hello ", Color::Blue)));
+            assert_eq!(iter.next(), Some(&mut Line::styled("world!", Color::Green)));
+            assert_eq!(iter.next(), None);
+        }
+
+        #[rstest]
+        fn into_iter(hello_world: Text<'_>) {
+            let mut iter = hello_world.into_iter();
+            assert_eq!(iter.next(), Some(Line::styled("Hello ", Color::Blue)));
+            assert_eq!(iter.next(), Some(Line::styled("world!", Color::Green)));
+            assert_eq!(iter.next(), None);
+        }
+
+        #[rstest]
+        fn into_iter_ref(hello_world: Text<'_>) {
+            let mut iter = (&hello_world).into_iter();
+            assert_eq!(iter.next(), Some(&Line::styled("Hello ", Color::Blue)));
+            assert_eq!(iter.next(), Some(&Line::styled("world!", Color::Green)));
+            assert_eq!(iter.next(), None);
+        }
+
+        #[test]
+        fn into_iter_mut_ref() {
+            let mut hello_world = Text::from(vec![
+                Line::styled("Hello ", Color::Blue),
+                Line::styled("world!", Color::Green),
+            ]);
+            let mut iter = (&mut hello_world).into_iter();
+            assert_eq!(iter.next(), Some(&mut Line::styled("Hello ", Color::Blue)));
+            assert_eq!(iter.next(), Some(&mut Line::styled("world!", Color::Green)));
+            assert_eq!(iter.next(), None);
+        }
+
+        #[rstest]
+        fn for_loop_ref(hello_world: Text<'_>) {
+            let mut result = String::new();
+            for line in &hello_world {
+                result.push_str(line.to_string().as_ref());
+            }
+            assert_eq!(result, "Hello world!");
+        }
+
+        #[rstest]
+        fn for_loop_mut_ref() {
+            let mut hello_world = Text::from(vec![
+                Line::styled("Hello ", Color::Blue),
+                Line::styled("world!", Color::Green),
+            ]);
+            let mut result = String::new();
+            for line in &mut hello_world {
+                result.push_str(line.to_string().as_ref());
+            }
+            assert_eq!(result, "Hello world!");
+        }
+
+        #[rstest]
+        fn for_loop_into(hello_world: Text<'_>) {
+            let mut result = String::new();
+            for line in hello_world {
+                result.push_str(line.to_string().as_ref());
+            }
+            assert_eq!(result, "Hello world!");
         }
     }
 }

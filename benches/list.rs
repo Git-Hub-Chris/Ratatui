@@ -7,7 +7,7 @@ use ratatui::{
 
 /// Benchmark for rendering a list.
 /// It only benchmarks the render with a different amount of items.
-pub fn list(c: &mut Criterion) {
+fn list(c: &mut Criterion) {
     let mut group = c.benchmark_group("list");
 
     for line_count in [64, 2048, 16384] {
@@ -33,7 +33,7 @@ pub fn list(c: &mut Criterion) {
                     ListState::default()
                         .with_offset(line_count / 2)
                         .with_selected(Some(line_count / 2)),
-                )
+                );
             },
         );
     }
@@ -52,7 +52,7 @@ fn render(bencher: &mut Bencher, list: &List) {
             Widget::render(bench_list, buffer.area, &mut buffer);
         },
         BatchSize::LargeInput,
-    )
+    );
 }
 
 /// render the list into a common size buffer with a state
@@ -63,10 +63,10 @@ fn render_stateful(bencher: &mut Bencher, list: &List, mut state: ListState) {
     bencher.iter_batched(
         || list.to_owned(),
         |bench_list| {
-            StatefulWidget::render(bench_list, buffer.area, &mut buffer, &mut state);
+            bench_list.render_stateful(buffer.area, &mut buffer, &mut state);
         },
         BatchSize::LargeInput,
-    )
+    );
 }
 
 criterion_group!(benches, list);

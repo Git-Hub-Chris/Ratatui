@@ -1,42 +1,44 @@
-use std::{error::Error, io};
+//! # [Ratatui] Calendar example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use crossterm::{
-    event::{self, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+use color_eyre::Result;
+use crossterm::event::KeyEventKind;
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode},
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Modifier, Style},
+    widgets::calendar::{CalendarEventStore, DateStyler, Monthly},
+    Frame,
 };
-use ratatui::{prelude::*, widgets::calendar::*};
 use time::{Date, Month, OffsetDateTime};
 
-fn main() -> Result<(), Box<dyn Error>> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
+fn main() -> Result<()> {
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
     loop {
-        let _ = terminal.draw(draw);
-
+        terminal.draw(ui)?;
         if let Event::Key(key) = event::read()? {
-            #[allow(clippy::single_match)]
-            match key.code {
-                KeyCode::Char(_) => {
-                    break;
-                }
-                _ => {}
+            if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
+                return Ok(());
             };
         }
     }
-
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-    Ok(())
 }
 
-fn draw(f: &mut Frame) {
-    let app_area = f.size();
+fn ui(frame: &mut Frame) {
+    let app_area = frame.size();
 
     let calarea = Rect {
         x: app_area.x + 1,
@@ -63,7 +65,7 @@ fn draw(f: &mut Frame) {
     });
     for col in cols {
         let cal = cals::get_cal(start.month(), start.year(), &list);
-        f.render_widget(cal, col);
+        frame.render_widget(cal, col);
         start = start.replace_month(start.month().next()).unwrap();
     }
 }
@@ -149,17 +151,16 @@ fn make_dates(current_year: i32) -> CalendarEventStore {
 }
 
 mod cals {
+    #[allow(clippy::wildcard_imports)]
     use super::*;
 
-    pub(super) fn get_cal<'a, DS: DateStyler>(m: Month, y: i32, es: DS) -> Monthly<'a, DS> {
-        use Month::*;
+    pub fn get_cal<'a, DS: DateStyler>(m: Month, y: i32, es: DS) -> Monthly<'a, DS> {
         match m {
-            May => example1(m, y, es),
-            June => example2(m, y, es),
-            July => example3(m, y, es),
-            December => example3(m, y, es),
-            February => example4(m, y, es),
-            November => example5(m, y, es),
+            Month::May => example1(m, y, es),
+            Month::June => example2(m, y, es),
+            Month::July | Month::December => example3(m, y, es),
+            Month::February => example4(m, y, es),
+            Month::November => example5(m, y, es),
             _ => default(m, y, es),
         }
     }

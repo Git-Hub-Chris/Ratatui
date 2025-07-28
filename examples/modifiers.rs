@@ -1,41 +1,44 @@
-/// This example is useful for testing how your terminal emulator handles different modifiers.
-/// It will render a grid of combinations of foreground and background colors with all
-/// modifiers applied to them.
-use std::{
-    error::Error,
-    io::{self, Stdout},
-    iter::once,
-    result,
-    time::Duration,
-};
+//! # [Ratatui] Modifiers example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use crossterm::{
-    event::{self, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+// This example is useful for testing how your terminal emulator handles different modifiers.
+// It will render a grid of combinations of foreground and background colors with all
+// modifiers applied to them.
+
+use std::{iter::once, time::Duration};
+
+use color_eyre::Result;
 use itertools::Itertools;
-use ratatui::{prelude::*, widgets::*};
-
-type Result<T> = result::Result<T, Box<dyn Error>>;
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode},
+    layout::{Constraint, Layout},
+    style::{Color, Modifier, Style, Stylize},
+    terminal::Frame,
+    text::Line,
+    widgets::Paragraph,
+};
 
 fn main() -> Result<()> {
-    let mut terminal = setup_terminal()?;
-    let res = run_app(&mut terminal);
-    restore_terminal(terminal)?;
-    if let Err(err) = res {
-        eprintln!("{err:?}");
-    }
-    Ok(())
-}
-
-fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
     loop {
         terminal.draw(ui)?;
 
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {
-                if let KeyCode::Char('q') = key.code {
+                if key.code == KeyCode::Char('q') {
                     return Ok(());
                 }
             }
@@ -45,7 +48,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>) -> io::Result<()> {
 
 fn ui(frame: &mut Frame) {
     let vertical = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]);
-    let [text_area, main_area] = frame.size().split(&vertical);
+    let [text_area, main_area] = vertical.areas(frame.size());
     frame.render_widget(
         Paragraph::new("Note: not all terminals support all modifiers")
             .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
@@ -72,8 +75,8 @@ fn ui(frame: &mut Frame) {
         .chain(Modifier::all().iter())
         .collect_vec();
     let mut index = 0;
-    for bg in colors.iter() {
-        for fg in colors.iter() {
+    for bg in &colors {
+        for fg in &colors {
             for modifier in &all_modifiers {
                 let modifier_name = format!("{modifier:11?}");
                 let padding = (" ").repeat(12 - modifier_name.len());
@@ -90,21 +93,4 @@ fn ui(frame: &mut Frame) {
             }
         }
     }
-}
-
-fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    terminal.hide_cursor()?;
-    Ok(terminal)
-}
-
-fn restore_terminal(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-    Ok(())
 }

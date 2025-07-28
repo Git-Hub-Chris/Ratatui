@@ -1,109 +1,240 @@
-use std::{error::Error, io};
+//! # [Ratatui] Tabs example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+use std::fmt;
+
+use color_eyre::Result;
+use ratatui::{
+    backend::{Backend, CrosstermBackend},
+    buffer::Buffer,
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    layout::{Constraint, Layout, Rect},
+    style::{palette::tailwind, Color, Stylize},
+    symbols,
+    terminal::Terminal,
+    text::Line,
+    widgets::{Block, Padding, Paragraph, Tabs, Widget},
 };
-use ratatui::{prelude::*, widgets::*};
 
-struct App<'a> {
-    pub titles: Vec<&'a str>,
-    pub index: usize,
+fn main() -> Result<()> {
+    let terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
+    App::default().run(terminal)
 }
 
-impl<'a> App<'a> {
-    fn new() -> App<'a> {
-        App {
-            titles: vec!["Tab0", "Tab1", "Tab2", "Tab3"],
-            index: 0,
+#[derive(Default)]
+struct App {
+    state: AppState,
+    selected_tab: SelectedTab,
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum AppState {
+    #[default]
+    Running,
+    Quitting,
+}
+
+#[derive(Default, Clone, Copy)]
+enum SelectedTab {
+    #[default]
+    Tab1,
+    Tab2,
+    Tab3,
+    Tab4,
+}
+
+impl fmt::Display for SelectedTab {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Tab1 => write!(f, "Tab 1"),
+            Self::Tab2 => write!(f, "Tab 2"),
+            Self::Tab3 => write!(f, "Tab 3"),
+            Self::Tab4 => write!(f, "Tab 4"),
         }
     }
+}
 
-    pub fn next(&mut self) {
-        self.index = (self.index + 1) % self.titles.len();
-    }
-
-    pub fn previous(&mut self) {
-        if self.index > 0 {
-            self.index -= 1;
-        } else {
-            self.index = self.titles.len() - 1;
+impl App {
+    fn run(mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
+        while self.state == AppState::Running {
+            self.draw(&mut terminal)?;
+            self.handle_events()?;
         }
-    }
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    // create app and run it
-    let app = App::new();
-    let res = run_app(&mut terminal, app);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{err:?}");
+        Ok(())
     }
 
-    Ok(())
-}
+    fn draw(&self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
+        terminal.draw(|frame| frame.render_widget(self, frame.size()))?;
+        Ok(())
+    }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
-    loop {
-        terminal.draw(|f| ui(f, &app))?;
-
+    fn handle_events(&mut self) -> std::io::Result<()> {
         if let Event::Key(key) = event::read()? {
             if key.kind == KeyEventKind::Press {
                 match key.code {
-                    KeyCode::Char('q') => return Ok(()),
-                    KeyCode::Right | KeyCode::Char('l') => app.next(),
-                    KeyCode::Left | KeyCode::Char('h') => app.previous(),
+                    KeyCode::Char('l') | KeyCode::Right => self.next_tab(),
+                    KeyCode::Char('h') | KeyCode::Left => self.previous_tab(),
+                    KeyCode::Char('q') | KeyCode::Esc => self.quit(),
                     _ => {}
                 }
             }
         }
+        Ok(())
+    }
+
+    pub fn next_tab(&mut self) {
+        self.selected_tab = self.selected_tab.next();
+    }
+
+    pub fn previous_tab(&mut self) {
+        self.selected_tab = self.selected_tab.previous();
+    }
+
+    pub fn quit(&mut self) {
+        self.state = AppState::Quitting;
     }
 }
 
-fn ui(f: &mut Frame, app: &App) {
-    let area = f.size();
-    let vertical = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]);
-    let [tabs_area, inner_area] = area.split(&vertical);
+impl Widget for &App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        use Constraint::{Length, Min};
+        let vertical = Layout::vertical([Length(1), Min(0), Length(1)]);
+        let [header_area, inner_area, footer_area] = vertical.areas(area);
 
-    let block = Block::default().on_white().black();
-    f.render_widget(block, area);
-    let tabs = app
-        .titles
-        .iter()
-        .map(|t| {
-            let (first, rest) = t.split_at(1);
-            Line::from(vec![first.yellow(), rest.green()])
-        })
-        .collect::<Tabs>()
-        .block(Block::default().borders(Borders::ALL).title("Tabs"))
-        .select(app.index)
-        .style(Style::default().cyan().on_gray())
-        .highlight_style(Style::default().bold().on_black());
-    f.render_widget(tabs, tabs_area);
-    let inner = match app.index {
-        0 => Block::default().title("Inner 0").borders(Borders::ALL),
-        1 => Block::default().title("Inner 1").borders(Borders::ALL),
-        2 => Block::default().title("Inner 2").borders(Borders::ALL),
-        3 => Block::default().title("Inner 3").borders(Borders::ALL),
-        _ => unreachable!(),
-    };
-    f.render_widget(inner, inner_area);
+        let horizontal = Layout::horizontal([Min(0), Length(20)]);
+        let [tabs_area, title_area] = horizontal.areas(header_area);
+
+        render_title(title_area, buf);
+        self.render_tabs(tabs_area, buf);
+        self.selected_tab.render(inner_area, buf);
+        render_footer(footer_area, buf);
+    }
+}
+
+impl App {
+    fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
+        let titles = SelectedTab::titles();
+        let highlight_style = (Color::default(), self.selected_tab.palette().c700);
+        let selected_tab_index = self.selected_tab as usize;
+        Tabs::new(titles)
+            .highlight_style(highlight_style)
+            .select(selected_tab_index)
+            .padding("", "")
+            .divider(" ")
+            .render(area, buf);
+    }
+}
+
+fn render_title(area: Rect, buf: &mut Buffer) {
+    "Ratatui Tabs Example".bold().render(area, buf);
+}
+
+fn render_footer(area: Rect, buf: &mut Buffer) {
+    Line::raw("◄ ► to change tab | Press q to quit")
+        .centered()
+        .render(area, buf);
+}
+
+impl Widget for SelectedTab {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        // in a real app these might be separate widgets
+        match self {
+            Self::Tab1 => self.render_tab0(area, buf),
+            Self::Tab2 => self.render_tab1(area, buf),
+            Self::Tab3 => self.render_tab2(area, buf),
+            Self::Tab4 => self.render_tab3(area, buf),
+        }
+    }
+}
+
+impl SelectedTab {
+    fn titles() -> [Line<'static>; 4] {
+        [
+            Self::Tab1.title(),
+            Self::Tab2.title(),
+            Self::Tab3.title(),
+            Self::Tab4.title(),
+        ]
+    }
+
+    /// Get the previous tab, if there is no previous tab return the current tab.
+    const fn previous(self) -> Self {
+        match self {
+            Self::Tab1 => Self::Tab4,
+            Self::Tab2 => Self::Tab1,
+            Self::Tab3 => Self::Tab2,
+            Self::Tab4 => Self::Tab3,
+        }
+    }
+
+    /// Get the next tab, if there is no next tab return the current tab.
+    const fn next(self) -> Self {
+        match self {
+            Self::Tab1 => Self::Tab2,
+            Self::Tab2 => Self::Tab3,
+            Self::Tab3 => Self::Tab4,
+            Self::Tab4 => Self::Tab1,
+        }
+    }
+
+    /// Return tab's name as a styled `Line`
+    fn title(self) -> Line<'static> {
+        format!("  {self}  ")
+            .fg(tailwind::SLATE.c200)
+            .bg(self.palette().c900)
+            .into()
+    }
+
+    fn render_tab0(self, area: Rect, buf: &mut Buffer) {
+        Paragraph::new("Hello, World!")
+            .block(self.block())
+            .render(area, buf);
+    }
+
+    fn render_tab1(self, area: Rect, buf: &mut Buffer) {
+        Paragraph::new("Welcome to the Ratatui tabs example!")
+            .block(self.block())
+            .render(area, buf);
+    }
+
+    fn render_tab2(self, area: Rect, buf: &mut Buffer) {
+        Paragraph::new("Look! I'm different than others!")
+            .block(self.block())
+            .render(area, buf);
+    }
+
+    fn render_tab3(self, area: Rect, buf: &mut Buffer) {
+        Paragraph::new("I know, these are some basic changes. But I think you got the main idea.")
+            .block(self.block())
+            .render(area, buf);
+    }
+
+    /// A block surrounding the tab's content
+    fn block(self) -> Block<'static> {
+        Block::bordered()
+            .border_set(symbols::border::PROPORTIONAL_TALL)
+            .padding(Padding::horizontal(1))
+            .border_style(self.palette().c700)
+    }
+
+    const fn palette(self) -> tailwind::Palette {
+        match self {
+            Self::Tab1 => tailwind::BLUE,
+            Self::Tab2 => tailwind::EMERALD,
+            Self::Tab3 => tailwind::INDIGO,
+            Self::Tab4 => tailwind::RED,
+        }
+    }
 }

@@ -1,13 +1,11 @@
-#![forbid(unsafe_code)]
-
 //! ![Demo](https://github.com/ratatui-org/ratatui/blob/1d39444e3dea6f309cf9035be2417ac711c1abc9/examples/demo2-destroy.gif?raw=true)
 //!
 //! <div align="center">
 //!
-//! [![Crate Badge]][Crate] [![Docs Badge]][API Docs] [![CI Badge]][CI Workflow] [![License
-//! Badge]](./LICENSE)<br>
-//! [![Codecov Badge]][Codecov] [![Deps.rs Badge]][Deps.rs] [![Discord Badge]][Discord Server]
-//! [![Matrix Badge]][Matrix]<br>
+//! [![Crate Badge]][Crate] [![Docs Badge]][API Docs] [![CI Badge]][CI Workflow] [![Deps.rs
+//! Badge]][Deps.rs]<br> [![Codecov Badge]][Codecov] [![License Badge]](./LICENSE) [![Sponsors
+//! Badge]][GitHub Sponsors]<br> [![Discord Badge]][Discord Server] [![Matrix Badge]][Matrix]
+//! [![Forum Badge]][Forum]<br>
 //!
 //! [Ratatui Website] · [API Docs] · [Examples] · [Changelog] · [Breaking Changes]<br>
 //! [Contributing] · [Report a bug] · [Request a Feature] · [Create a Pull Request]
@@ -22,10 +20,10 @@
 //!
 //! ## Installation
 //!
-//! Add `ratatui` and `crossterm` as dependencies to your cargo.toml:
+//! Add `ratatui` as a dependency to your cargo.toml:
 //!
 //! ```shell
-//! cargo add ratatui crossterm
+//! cargo add ratatui
 //! ```
 //!
 //! Ratatui uses [Crossterm] by default as it works on most platforms. See the [Installation]
@@ -40,9 +38,13 @@
 //! automatically redrawn on the next frame. See the [Rendering] section of the [Ratatui Website]
 //! for more info.
 //!
+//! You can also watch the [FOSDEM 2024 talk] about Ratatui which gives a brief introduction to
+//! terminal user interfaces and showcases the features of Ratatui, along with a hello world demo.
+//!
 //! ## Other documentation
 //!
 //! - [Ratatui Website] - explains the library's concepts and provides step-by-step tutorials
+//! - [Ratatui Forum][Forum] - a place to ask questions and discuss the library
 //! - [API Docs] - the full API documentation for the library on docs.rs.
 //! - [Examples] - a collection of examples that demonstrate how to use the library.
 //! - [Contributing] - Please read this if you are interested in contributing to the project.
@@ -86,7 +88,8 @@
 //!
 //! The drawing logic is delegated to a closure that takes a [`Frame`] instance as argument. The
 //! [`Frame`] provides the size of the area to draw to and allows the app to render any [`Widget`]
-//! using the provided [`render_widget`] method. See the [Widgets] section of the [Ratatui Website]
+//! using the provided [`render_widget`] method. After this closure returns, a diff is performed and
+//! only the changes are drawn to the terminal. See the [Widgets] section of the [Ratatui Website]
 //! for more info.
 //!
 //! ### Handling events
@@ -101,12 +104,17 @@
 //! ```rust,no_run
 //! use std::io::{self, stdout};
 //!
-//! use crossterm::{
-//!     event::{self, Event, KeyCode},
-//!     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-//!     ExecutableCommand,
+//! use ratatui::{
+//!     crossterm::{
+//!         event::{self, Event, KeyCode},
+//!         terminal::{
+//!             disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+//!         },
+//!         ExecutableCommand,
+//!     },
+//!     prelude::*,
+//!     widgets::*,
 //! };
-//! use ratatui::{prelude::*, widgets::*};
 //!
 //! fn main() -> io::Result<()> {
 //!     enable_raw_mode()?;
@@ -137,8 +145,7 @@
 //!
 //! fn ui(frame: &mut Frame) {
 //!     frame.render_widget(
-//!         Paragraph::new("Hello World!")
-//!             .block(Block::default().title("Greeting").borders(Borders::ALL)),
+//!         Paragraph::new("Hello World!").block(Block::bordered().title("Greeting")),
 //!         frame.size(),
 //!     );
 //! }
@@ -182,14 +189,8 @@
 //!         [Constraint::Percentage(50), Constraint::Percentage(50)],
 //!     )
 //!     .split(main_layout[1]);
-//!     frame.render_widget(
-//!         Block::default().borders(Borders::ALL).title("Left"),
-//!         inner_layout[0],
-//!     );
-//!     frame.render_widget(
-//!         Block::default().borders(Borders::ALL).title("Right"),
-//!         inner_layout[1],
-//!     );
+//!     frame.render_widget(Block::bordered().title("Left"), inner_layout[0]);
+//!     frame.render_widget(Block::bordered().title("Right"), inner_layout[1]);
 //! }
 //! ```
 //!
@@ -260,22 +261,6 @@
 //! ![docsrs-styling]
 #![cfg_attr(feature = "document-features", doc = "\n## Features")]
 #![cfg_attr(feature = "document-features", doc = document_features::document_features!())]
-#![cfg_attr(
-    feature = "document-features",
-    doc = "[`CrossTermBackend`]: backend::CrosstermBackend"
-)]
-#![cfg_attr(
-    feature = "document-features",
-    doc = "[`TermionBackend`]: backend::TermionBackend"
-)]
-#![cfg_attr(
-    feature = "document-features",
-    doc = "[`TermwizBackend`]: backend::TermwizBackend"
-)]
-#![cfg_attr(
-    feature = "document-features",
-    doc = "[`calendar`]: widgets::calendar::Monthly"
-)]
 //!
 //! [Ratatui Website]: https://ratatui.rs/
 //! [Installation]: https://ratatui.rs/installation/
@@ -298,6 +283,7 @@
 //! [Changelog]: https://github.com/ratatui-org/ratatui/blob/main/CHANGELOG.md
 //! [Contributing]: https://github.com/ratatui-org/ratatui/blob/main/CONTRIBUTING.md
 //! [Breaking Changes]: https://github.com/ratatui-org/ratatui/blob/main/BREAKING-CHANGES.md
+//! [FOSDEM 2024 talk]: https://www.youtube.com/watch?v=NU0q6NOLJ20
 //! [docsrs-hello]: https://github.com/ratatui-org/ratatui/blob/c3c3c289b1eb8d562afb1931adb4dc719cd48490/examples/docsrs-hello.png?raw=true
 //! [docsrs-layout]: https://github.com/ratatui-org/ratatui/blob/c3c3c289b1eb8d562afb1931adb4dc719cd48490/examples/docsrs-layout.png?raw=true
 //! [docsrs-styling]: https://github.com/ratatui-org/ratatui/blob/c3c3c289b1eb8d562afb1931adb4dc719cd48490/examples/docsrs-styling.png?raw=true
@@ -319,23 +305,23 @@
 //! [Termion]: https://crates.io/crates/termion
 //! [Termwiz]: https://crates.io/crates/termwiz
 //! [tui-rs]: https://crates.io/crates/tui
-//! [Crate Badge]: https://img.shields.io/crates/v/ratatui?logo=rust&style=flat-square
-//! [License Badge]: https://img.shields.io/crates/l/ratatui?style=flat-square
-//! [CI Badge]:
-//!     https://img.shields.io/github/actions/workflow/status/ratatui-org/ratatui/ci.yml?style=flat-square&logo=github
+//! [GitHub Sponsors]: https://github.com/sponsors/ratatui-org
+//! [Crate Badge]: https://img.shields.io/crates/v/ratatui?logo=rust&style=flat-square&logoColor=E05D44&color=E05D44
+//! [License Badge]: https://img.shields.io/crates/l/ratatui?style=flat-square&color=1370D3
+//! [CI Badge]: https://img.shields.io/github/actions/workflow/status/ratatui-org/ratatui/ci.yml?style=flat-square&logo=github
 //! [CI Workflow]: https://github.com/ratatui-org/ratatui/actions/workflows/ci.yml
-//! [Codecov Badge]:
-//!     https://img.shields.io/codecov/c/github/ratatui-org/ratatui?logo=codecov&style=flat-square&token=BAQ8SOKEST
+//! [Codecov Badge]: https://img.shields.io/codecov/c/github/ratatui-org/ratatui?logo=codecov&style=flat-square&token=BAQ8SOKEST&color=C43AC3&logoColor=C43AC3
 //! [Codecov]: https://app.codecov.io/gh/ratatui-org/ratatui
 //! [Deps.rs Badge]: https://deps.rs/repo/github/ratatui-org/ratatui/status.svg?style=flat-square
 //! [Deps.rs]: https://deps.rs/repo/github/ratatui-org/ratatui
-//! [Discord Badge]:
-//!     https://img.shields.io/discord/1070692720437383208?label=discord&logo=discord&style=flat-square
+//! [Discord Badge]: https://img.shields.io/discord/1070692720437383208?label=discord&logo=discord&style=flat-square&color=1370D3&logoColor=1370D3
 //! [Discord Server]: https://discord.gg/pMCEU9hNEj
-//! [Docs Badge]: https://img.shields.io/docsrs/ratatui?logo=rust&style=flat-square
-//! [Matrix Badge]:
-//!     https://img.shields.io/matrix/ratatui-general%3Amatrix.org?style=flat-square&logo=matrix&label=Matrix
+//! [Docs Badge]: https://img.shields.io/docsrs/ratatui?logo=rust&style=flat-square&logoColor=E05D44
+//! [Matrix Badge]: https://img.shields.io/matrix/ratatui-general%3Amatrix.org?style=flat-square&logo=matrix&label=Matrix&color=C43AC3
 //! [Matrix]: https://matrix.to/#/#ratatui:matrix.org
+//! [Forum Badge]: https://img.shields.io/discourse/likes?server=https%3A%2F%2Fforum.ratatui.rs&style=flat-square&logo=discourse&label=forum&color=C43AC3
+//! [Forum]: https://forum.ratatui.rs
+//! [Sponsors Badge]: https://img.shields.io/github/sponsors/ratatui-org?logo=github&style=flat-square&color=1370D3
 
 // show the feature flags in the generated documentation
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
@@ -344,16 +330,24 @@
     html_favicon_url = "https://raw.githubusercontent.com/ratatui-org/ratatui/main/assets/favicon.ico"
 )]
 
+/// re-export the `crossterm` crate so that users don't have to add it as a dependency
+#[cfg(feature = "crossterm")]
+pub use crossterm;
+#[doc(inline)]
+pub use terminal::{CompletedFrame, Frame, Terminal, TerminalOptions, Viewport};
+/// re-export the `termion` crate so that users don't have to add it as a dependency
+#[cfg(feature = "termion")]
+pub use termion;
+/// re-export the `termwiz` crate so that users don't have to add it as a dependency
+#[cfg(feature = "termwiz")]
+pub use termwiz;
+
 pub mod backend;
 pub mod buffer;
 pub mod layout;
+pub mod prelude;
 pub mod style;
 pub mod symbols;
 pub mod terminal;
 pub mod text;
 pub mod widgets;
-
-#[doc(inline)]
-pub use self::terminal::{CompletedFrame, Frame, Terminal, TerminalOptions, Viewport};
-
-pub mod prelude;

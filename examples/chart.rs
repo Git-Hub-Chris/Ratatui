@@ -1,21 +1,34 @@
-use std::{
-    error::Error,
-    io,
-    time::{Duration, Instant},
-};
+//! # [Ratatui] Chart example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use std::time::{Duration, Instant};
+
+use color_eyre::Result;
 use ratatui::{
-    prelude::*,
-    widgets::{block::Title, *},
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{Color, Modifier, Style, Stylize},
+    symbols::{self, Marker},
+    terminal::Frame,
+    text::Span,
+    widgets::{block::Title, Axis, Block, Chart, Dataset, GraphType, LegendPosition},
 };
 
 #[derive(Clone)]
-pub struct SinSignal {
+struct SinSignal {
     x: f64,
     interval: f64,
     period: f64,
@@ -23,8 +36,8 @@ pub struct SinSignal {
 }
 
 impl SinSignal {
-    pub fn new(interval: f64, period: f64, scale: f64) -> SinSignal {
-        SinSignal {
+    const fn new(interval: f64, period: f64, scale: f64) -> Self {
+        Self {
             x: 0.0,
             interval,
             period,
@@ -51,12 +64,12 @@ struct App {
 }
 
 impl App {
-    fn new() -> App {
+    fn new() -> Self {
         let mut signal1 = SinSignal::new(0.2, 3.0, 18.0);
         let mut signal2 = SinSignal::new(0.1, 2.0, 10.0);
         let data1 = signal1.by_ref().take(200).collect::<Vec<(f64, f64)>>();
         let data2 = signal2.by_ref().take(200).collect::<Vec<(f64, f64)>>();
-        App {
+        Self {
             signal1,
             data1,
             signal2,
@@ -66,53 +79,24 @@ impl App {
     }
 
     fn on_tick(&mut self) {
-        for _ in 0..5 {
-            self.data1.remove(0);
-        }
+        self.data1.drain(0..5);
         self.data1.extend(self.signal1.by_ref().take(5));
-        for _ in 0..10 {
-            self.data2.remove(0);
-        }
+
+        self.data2.drain(0..10);
         self.data2.extend(self.signal2.by_ref().take(10));
+
         self.window[0] += 1.0;
         self.window[1] += 1.0;
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+fn main() -> Result<()> {
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?
+        .with_mouse_capture()?
+        .to_terminal()?;
 
-    // create app and run it
     let tick_rate = Duration::from_millis(250);
-    let app = App::new();
-    let res = run_app(&mut terminal, app, tick_rate);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{err:?}");
-    }
-
-    Ok(())
-}
-
-fn run_app<B: Backend>(
-    terminal: &mut Terminal<B>,
-    mut app: App,
-    tick_rate: Duration,
-) -> io::Result<()> {
+    let mut app = App::new();
     let mut last_tick = Instant::now();
     loop {
         terminal.draw(|f| ui(f, &app))?;
@@ -120,7 +104,7 @@ fn run_app<B: Backend>(
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if crossterm::event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
-                if let KeyCode::Char('q') = key.code {
+                if key.code == KeyCode::Char('q') {
                     return Ok(());
                 }
             }
@@ -137,8 +121,8 @@ fn ui(frame: &mut Frame, app: &App) {
 
     let vertical = Layout::vertical([Constraint::Percentage(40), Constraint::Percentage(60)]);
     let horizontal = Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]);
-    let [chart1, bottom] = area.split(&vertical);
-    let [line_chart, scatter] = bottom.split(&horizontal);
+    let [chart1, bottom] = vertical.areas(area);
+    let [line_chart, scatter] = horizontal.areas(bottom);
 
     render_chart1(frame, chart1, app);
     render_line_chart(frame, line_chart);
@@ -171,11 +155,7 @@ fn render_chart1(f: &mut Frame, area: Rect, app: &App) {
     ];
 
     let chart = Chart::new(datasets)
-        .block(
-            Block::default()
-                .title("Chart 1".cyan().bold())
-                .borders(Borders::ALL),
-        )
+        .block(Block::bordered().title("Chart 1".cyan().bold()))
         .x_axis(
             Axis::default()
                 .title("X Axis")
@@ -204,13 +184,11 @@ fn render_line_chart(f: &mut Frame, area: Rect) {
 
     let chart = Chart::new(datasets)
         .block(
-            Block::default()
-                .title(
-                    Title::default()
-                        .content("Line chart".cyan().bold())
-                        .alignment(Alignment::Center),
-                )
-                .borders(Borders::ALL),
+            Block::bordered().title(
+                Title::default()
+                    .content("Line chart".cyan().bold())
+                    .alignment(Alignment::Center),
+            ),
         )
         .x_axis(
             Axis::default()
@@ -229,7 +207,7 @@ fn render_line_chart(f: &mut Frame, area: Rect) {
         .legend_position(Some(LegendPosition::TopLeft))
         .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)));
 
-    f.render_widget(chart, area)
+    f.render_widget(chart, area);
 }
 
 fn render_scatter(f: &mut Frame, area: Rect) {
@@ -256,7 +234,7 @@ fn render_scatter(f: &mut Frame, area: Rect) {
 
     let chart = Chart::new(datasets)
         .block(
-            Block::new().borders(Borders::all()).title(
+            Block::bordered().title(
                 Title::default()
                     .content("Scatter chart".cyan().bold())
                     .alignment(Alignment::Center),
@@ -297,7 +275,7 @@ const HEAVY_PAYLOAD_DATA: [(f64, f64); 9] = [
 const MEDIUM_PAYLOAD_DATA: [(f64, f64); 29] = [
     (1963., 29500.),
     (1964., 30600.),
-    (1965., 177900.),
+    (1965., 177_900.),
     (1965., 21000.),
     (1966., 17900.),
     (1966., 8400.),
@@ -327,7 +305,7 @@ const MEDIUM_PAYLOAD_DATA: [(f64, f64); 29] = [
 ];
 
 const SMALL_PAYLOAD_DATA: [(f64, f64); 23] = [
-    (1961., 118500.),
+    (1961., 118_500.),
     (1962., 14900.),
     (1975., 21400.),
     (1980., 32800.),

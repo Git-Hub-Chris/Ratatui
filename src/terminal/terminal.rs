@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::{backend::ClearType, prelude::*};
+use crate::{backend::ClearType, prelude::*, CompletedFrame, TerminalOptions, Viewport};
 
 /// An interface to interact and draw [`Frame`]s on the user's terminal.
 ///
@@ -16,7 +16,7 @@ use crate::{backend::ClearType, prelude::*};
 /// When the widgets are drawn, the changes are accumulated in the current buffer.
 /// At the end of each draw pass, the two buffers are compared, and only the changes
 /// between these buffers are written to the terminal, avoiding any redundant operations.
-/// After flushing these changes, the buffers are swapped to prepare for the next draw cycle./
+/// After flushing these changes, the buffers are swapped to prepare for the next draw cycle.
 ///
 /// The terminal also has a viewport which is the area of the terminal that is currently visible to
 /// the user. It can be either fullscreen, inline or fixed. See [`Viewport`] for more information.
@@ -111,8 +111,8 @@ where
     /// let terminal = Terminal::new(backend)?;
     /// # std::io::Result::Ok(())
     /// ```
-    pub fn new(backend: B) -> io::Result<Terminal<B>> {
-        Terminal::with_options(
+    pub fn new(backend: B) -> io::Result<Self> {
+        Self::with_options(
             backend,
             TerminalOptions {
                 viewport: Viewport::Fullscreen,
@@ -126,13 +126,13 @@ where
     ///
     /// ```rust
     /// # use std::io::stdout;
-    /// # use ratatui::{prelude::*, backend::TestBackend};
+    /// # use ratatui::{prelude::*, backend::TestBackend, terminal::{Viewport, TerminalOptions}};
     /// let backend = CrosstermBackend::new(stdout());
     /// let viewport = Viewport::Fixed(Rect::new(0, 0, 10, 10));
     /// let terminal = Terminal::with_options(backend, TerminalOptions { viewport })?;
     /// # std::io::Result::Ok(())
     /// ```
-    pub fn with_options(mut backend: B, options: TerminalOptions) -> io::Result<Terminal<B>> {
+    pub fn with_options(mut backend: B, options: TerminalOptions) -> io::Result<Self> {
         let size = match options.viewport {
             Viewport::Fullscreen | Viewport::Inline(_) => backend.size()?,
             Viewport::Fixed(area) => area,
@@ -142,7 +142,7 @@ where
             Viewport::Inline(height) => compute_inline_size(&mut backend, height, size, 0)?,
             Viewport::Fixed(area) => (area, (area.left(), area.top())),
         };
-        Ok(Terminal {
+        Ok(Self {
             backend,
             buffers: [Buffer::empty(viewport_area), Buffer::empty(viewport_area)],
             current: 0,
@@ -172,7 +172,7 @@ where
     }
 
     /// Gets the backend
-    pub fn backend(&self) -> &B {
+    pub const fn backend(&self) -> &B {
         &self.backend
     }
 
@@ -238,6 +238,10 @@ where
     /// and prepares for the next draw call.
     ///
     /// This is the main entry point for drawing to the terminal.
+    ///
+    /// The changes drawn to the frame are applied only to the current [`Buffer`]. After the closure
+    /// returns, the current buffer is compared to the previous buffer and only the changes are
+    /// applied to the terminal.
     ///
     /// # Examples
     ///

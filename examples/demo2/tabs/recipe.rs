@@ -1,5 +1,14 @@
 use itertools::Itertools;
-use ratatui::{prelude::*, widgets::*};
+use ratatui::{
+    buffer::Buffer,
+    layout::{Alignment, Constraint, Layout, Margin, Rect},
+    style::{Style, Stylize},
+    text::Line,
+    widgets::{
+        Block, Clear, Padding, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        StatefulWidget, Table, TableState, Widget, Wrap,
+    },
+};
 
 use crate::{RgbSwatch, THEME};
 
@@ -10,6 +19,7 @@ struct Ingredient {
 }
 
 impl Ingredient {
+    #[allow(clippy::cast_possible_truncation)]
     fn height(&self) -> u16 {
         self.name.lines().count() as u16
     }
@@ -84,23 +94,27 @@ const INGREDIENTS: &[Ingredient] = &[
     },
 ];
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct RecipeTab {
-    selected_row: usize,
+    row_index: usize,
 }
 
 impl RecipeTab {
-    pub fn new(selected_row: usize) -> Self {
-        Self {
-            selected_row: selected_row % INGREDIENTS.len(),
-        }
+    /// Select the previous item in the ingredients list (with wrap around)
+    pub fn prev(&mut self) {
+        self.row_index = self.row_index.saturating_add(INGREDIENTS.len() - 1) % INGREDIENTS.len();
+    }
+
+    /// Select the next item in the ingredients list (with wrap around)
+    pub fn next(&mut self) {
+        self.row_index = self.row_index.saturating_add(1) % INGREDIENTS.len();
     }
 }
 
 impl Widget for RecipeTab {
     fn render(self, area: Rect, buf: &mut Buffer) {
         RgbSwatch.render(area, buf);
-        let area = area.inner(&Margin {
+        let area = area.inner(Margin {
             vertical: 1,
             horizontal: 2,
         });
@@ -117,19 +131,17 @@ impl Widget for RecipeTab {
             height: area.height - 3,
             ..area
         };
-        render_scrollbar(self.selected_row, scrollbar_area, buf);
+        render_scrollbar(self.row_index, scrollbar_area, buf);
 
-        let area = area.inner(&Margin {
+        let area = area.inner(Margin {
             horizontal: 2,
             vertical: 1,
         });
-        let [recipe, ingredients] = area.split(&Layout::horizontal([
-            Constraint::Length(44),
-            Constraint::Min(0),
-        ]));
+        let [recipe, ingredients] =
+            Layout::horizontal([Constraint::Length(44), Constraint::Min(0)]).areas(area);
 
         render_recipe(recipe, buf);
-        render_ingredients(self.selected_row, ingredients, buf);
+        render_ingredients(self.row_index, ingredients, buf);
     }
 }
 
@@ -146,17 +158,14 @@ fn render_recipe(area: Rect, buf: &mut Buffer) {
 
 fn render_ingredients(selected_row: usize, area: Rect, buf: &mut Buffer) {
     let mut state = TableState::default().with_selected(Some(selected_row));
-    let rows = INGREDIENTS.iter().cloned();
+    let rows = INGREDIENTS.iter().copied();
     let theme = THEME.recipe;
-    StatefulWidget::render(
-        Table::new(rows, [Constraint::Length(7), Constraint::Length(30)])
-            .block(Block::new().style(theme.ingredients))
-            .header(Row::new(vec!["Qty", "Ingredient"]).style(theme.ingredients_header))
-            .highlight_style(Style::new().light_yellow()),
-        area,
-        buf,
-        &mut state,
-    );
+
+    Table::new(rows, [Constraint::Length(7), Constraint::Length(30)])
+        .block(Block::new().style(theme.ingredients))
+        .header(Row::new(vec!["Qty", "Ingredient"]).style(theme.ingredients_header))
+        .highlight_style(Style::new().light_yellow())
+        .render_stateful(area, buf, &mut state);
 }
 
 fn render_scrollbar(position: usize, area: Rect, buf: &mut Buffer) {
@@ -169,5 +178,5 @@ fn render_scrollbar(position: usize, area: Rect, buf: &mut Buffer) {
         .end_symbol(None)
         .track_symbol(None)
         .thumb_symbol("▐")
-        .render(area, buf, &mut state)
+        .render_stateful(area, buf, &mut state);
 }

@@ -2,76 +2,62 @@
 //! the [Crossterm] crate to interact with the terminal.
 //!
 //! [Crossterm]: https://crates.io/crates/crossterm
-use std::io::{self, Write};
+use std::io;
 
 #[cfg(feature = "underline-color")]
-use crossterm::style::SetUnderlineColor;
-use crossterm::{
-    cursor::{Hide, MoveTo, Show},
-    execute, queue,
-    style::{
-        Attribute as CAttribute, Attributes as CAttributes, Color as CColor, ContentStyle, Print,
-        SetAttribute, SetBackgroundColor, SetForegroundColor,
-    },
-    terminal::{self, Clear},
-};
-
+use crate::crossterm::style::SetUnderlineColor;
 use crate::{
     backend::{Backend, ClearType, WindowSize},
     buffer::Cell,
-    layout::Size,
-    prelude::Rect,
+    crossterm::{
+        cursor::{Hide, MoveTo, Show},
+        event::{
+            DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+            EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags,
+            PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+        },
+        execute, queue,
+        style::{
+            Attribute as CAttribute, Attributes as CAttributes, Color as CColor, Colors,
+            ContentStyle, Print, SetAttribute, SetBackgroundColor, SetColors, SetForegroundColor,
+        },
+        terminal::{
+            disable_raw_mode, enable_raw_mode, Clear, EnterAlternateScreen, LeaveAlternateScreen,
+        },
+    },
+    layout::{Rect, Size},
     style::{Color, Modifier, Style},
 };
 
 /// A [`Backend`] implementation that uses [Crossterm] to render to the terminal.
 ///
-/// The `CrosstermBackend` struct is a wrapper around a writer implementing [`Write`], which is
-/// used to send commands to the terminal. It provides methods for drawing content, manipulating
-/// the cursor, and clearing the terminal screen.
-///
-/// Most applications should not call the methods on `CrosstermBackend` directly, but will instead
-/// use the [`Terminal`] struct, which provides a more ergonomic interface.
-///
-/// Usually applications will enable raw mode and switch to alternate screen mode after creating
-/// a `CrosstermBackend`. This is done by calling [`crossterm::terminal::enable_raw_mode`] and
-/// [`crossterm::terminal::EnterAlternateScreen`] (and the corresponding disable/leave functions
-/// when the application exits). This is not done automatically by the backend because it is
-/// possible that the application may want to use the terminal for other purposes (like showing
-/// help text) before entering alternate screen mode.
+/// The `CrosstermBackend` struct is a wrapper around a writer implementing [`Write`], which is used
+/// to send commands to the terminal. It provides methods for drawing content, manipulating the
+/// cursor, and clearing the terminal screen.
+
+/// If a backend is configured using the `with_*` methods, the settings are restored when the
+/// `CrosstermBackend` is dropped.
 ///
 /// # Example
 ///
 /// ```rust,no_run
-/// use std::io::{stderr, stdout};
-///
-/// use crossterm::{
-///     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-///     ExecutableCommand,
+/// use ratatui::{
+///     backend::{Backend, CrosstermBackend},
+///     crossterm::event::KeyboardEnhancementFlags,
 /// };
-/// use ratatui::prelude::*;
 ///
-/// let mut backend = CrosstermBackend::new(stdout());
-/// // or
-/// let backend = CrosstermBackend::new(stderr());
-/// let mut terminal = Terminal::new(backend)?;
-///
-/// enable_raw_mode()?;
-/// stdout().execute(EnterAlternateScreen)?;
-///
-/// terminal.clear()?;
-/// terminal.draw(|frame| {
-///     // -- snip --
-/// })?;
-///
-/// stdout().execute(LeaveAlternateScreen)?;
-/// disable_raw_mode()?;
-///
+
+///     .with_raw_mode()?
+///     .with_alternate_screen()?
+///     .with_mouse_capture()?
+///     .with_bracketed_paste()?
+///     .with_focus_change()?
+
 /// # std::io::Result::Ok(())
 /// ```
 ///
-/// See the the [Examples] directory for more examples. See the [`backend`] module documentation
-/// for more details on raw mode and alternate screen.
+/// See the the [Examples] directory for more examples. See the [`backend`] module documentation for
+/// more details on raw mode and alternate screen.
 ///
 /// [`Write`]: std::io::Write
 /// [`Terminal`]: crate::terminal::Terminal
@@ -79,33 +65,251 @@ use crate::{
 /// [Crossterm]: https://crates.io/crates/crossterm
 /// [Examples]: https://github.com/ratatui-org/ratatui/tree/main/examples/README.md
 #[derive(Debug, Default, Clone, Eq, PartialEq, Hash)]
-pub struct CrosstermBackend<W: Write> {
+#[allow(clippy::struct_excessive_bools)]
+
     /// The writer used to send commands to the terminal.
     writer: W,
+    restore_raw_mode_on_drop: bool,
+    restore_alternate_screen_on_drop: bool,
+    restore_mouse_capture_on_drop: bool,
+    restore_bracketed_paste_on_drop: bool,
+    restore_focus_change_on_drop: bool,
+    restore_keyboard_enhancement_flags_on_drop: bool,
 }
 
-impl<W> CrosstermBackend<W>
-where
-    W: Write,
-{
+impl<W: io::Write> CrosstermBackend<W> {
     /// Creates a new `CrosstermBackend` with the given writer.
+    ///
+    /// Applications will typically use [`CrosstermBackend::stdout`] or [`CrosstermBackend::stderr`]
+    /// to create a `CrosstermBackend` with [`std::io::stdout`] or [`std::io::stderr`] as the
+    /// writer.
     ///
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use std::io::stdout;
-    /// # use ratatui::prelude::*;
-    /// let backend = CrosstermBackend::new(stdout());
+    /// # use ratatui::backend::CrosstermBackend;
+    /// let backend = CrosstermBackend::new(std::io::stdout());
     /// ```
-    pub fn new(writer: W) -> CrosstermBackend<W> {
-        CrosstermBackend { writer }
+    pub const fn new(writer: W) -> Self {
+        Self {
+            writer,
+            restore_raw_mode_on_drop: false,
+            restore_alternate_screen_on_drop: false,
+            restore_mouse_capture_on_drop: false,
+            restore_bracketed_paste_on_drop: false,
+            restore_focus_change_on_drop: false,
+            restore_keyboard_enhancement_flags_on_drop: false,
+        }
+    }
+
+    /// Gets the writer.
+    #[stability::unstable(
+        feature = "backend-writer",
+        issue = "https://github.com/ratatui-org/ratatui/pull/991"
+    )]
+    pub const fn writer(&self) -> &W {
+        &self.writer
+    }
+
+    /// Gets the writer as a mutable reference.
+    ///
+    /// Note: writing to the writer may cause incorrect output after the write. This is due to the
+    /// way that the Terminal implements diffing Buffers.
+    #[stability::unstable(
+        feature = "backend-writer",
+        issue = "https://github.com/ratatui-org/ratatui/pull/991"
+    )]
+    pub fn writer_mut(&mut self) -> &mut W {
+        &mut self.writer
     }
 }
 
-impl<W> Write for CrosstermBackend<W>
-where
-    W: Write,
-{
+impl CrosstermBackend<io::Stdout> {
+
+    ///
+    /// Raw mode and alternate screen are restored when the `CrosstermBackend` is dropped.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use ratatui::backend::CrosstermBackend;
+
+    }
+}
+
+impl CrosstermBackend<io::Stderr> {
+
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use ratatui::backend::CrosstermBackend;
+
+    /// Enables raw mode for the terminal.
+    ///
+    /// Returns an [`io::Result`] containing self so that it can be chained with other methods.
+    ///
+    /// Raw mode is restored when the `CrosstermBackend` is dropped.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use ratatui::backend::CrosstermBackend;
+
+    /// # std::io::Result::Ok(())
+    /// ```
+    pub fn with_raw_mode(mut self) -> io::Result<Self> {
+        enable_raw_mode()?;
+        self.restore_raw_mode_on_drop = true;
+        Ok(self)
+    }
+
+
+    ///
+    /// Returns an [`io::Result`] containing self so that it can be chained with other methods.
+    ///
+    /// Alternate screen is restored when the `CrosstermBackend` is dropped.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use ratatui::backend::CrosstermBackend;
+
+    /// # std::io::Result::Ok(())
+    /// ```
+    pub fn with_alternate_screen(mut self) -> io::Result<Self> {
+        execute!(self.writer, EnterAlternateScreen)?;
+        self.restore_alternate_screen_on_drop = true;
+        Ok(self)
+    }
+
+    /// Enables mouse capture for the terminal.
+    ///
+    /// Returns an [`io::Result`] containing self so that it can be chained with other methods.
+    ///
+    /// Mouse capture is disabled when the `CrosstermBackend` is dropped.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use ratatui::backend::CrosstermBackend;
+
+    /// # std::io::Result::Ok(())
+    /// ```
+    pub fn with_mouse_capture(mut self) -> io::Result<Self> {
+        execute!(self.writer, EnableMouseCapture)?;
+        self.restore_mouse_capture_on_drop = true;
+        Ok(self)
+    }
+
+    /// Enables bracketed paste for the terminal.
+    ///
+    /// Returns an [`io::Result`] containing self so that it can be chained with other methods.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use ratatui::backend::CrosstermBackend;
+
+    /// # std::io::Result::Ok(())
+    /// ```
+    pub fn with_bracketed_paste(mut self) -> io::Result<Self> {
+        execute!(self.writer, EnableBracketedPaste)?;
+        self.restore_bracketed_paste_on_drop = true;
+        Ok(self)
+    }
+
+    /// Enables focus change for the terminal.
+    ///
+    /// Returns an [`io::Result`] containing self so that it can be chained with other methods.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use ratatui::backend::CrosstermBackend;
+
+    /// # std::io::Result::Ok(())
+    pub fn with_focus_change(mut self) -> io::Result<Self> {
+        execute!(self.writer, EnableFocusChange)?;
+        self.restore_focus_change_on_drop = true;
+        Ok(self)
+    }
+
+    /// Enables keyboard enhancement flags for the terminal.
+    ///
+    /// Returns an [`io::Result`] containing self so that it can be chained with other methods.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use ratatui::{backend::CrosstermBackend, crossterm::event::KeyboardEnhancementFlags};
+    ///
+
+    ///     .with_keyboard_enhancement_flags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)?;
+    /// # std::io::Result::Ok(())
+    /// ```
+    pub fn with_keyboard_enhancement_flags(
+        mut self,
+        flags: KeyboardEnhancementFlags,
+    ) -> io::Result<Self> {
+        execute!(self.writer, PushKeyboardEnhancementFlags(flags))?;
+        self.restore_keyboard_enhancement_flags_on_drop = true;
+        Ok(self)
+    }
+
+    /// - Disables bracketed paste
+    /// - Disables focus change
+    /// - Pops keyboard enhancement flags
+    ///
+    /// This method is an associated method rather than an instance method to make it possible to
+    /// call without having a `CrosstermBackend` instance. This is often useful in the context of
+    /// error / panic handling.
+    ///
+    /// If you have created a `CrosstermBackend` using the `with_*` methods, the settings are
+    /// restored when the `CrosstermBackend` is dropped, so you do not need to call this method
+    /// manually.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use ratatui::backend::CrosstermBackend;
+
+        disable_raw_mode()?;
+        execute!(
+            writer,
+            LeaveAlternateScreen,
+            DisableMouseCapture,
+            DisableBracketedPaste,
+            DisableFocusChange,
+            PopKeyboardEnhancementFlags
+        )?;
+        writer.flush()
+    }
+}
+    fn drop(&mut self) {
+        // note that these are not checked for errors because there is nothing that can be done if
+        // they fail. The terminal is likely in a bad state, and the application is exiting anyway.
+        if self.restore_raw_mode_on_drop {
+            let _ = disable_raw_mode();
+        }
+        if self.restore_mouse_capture_on_drop {
+            let _ = execute!(self.writer, DisableMouseCapture);
+        }
+        if self.restore_alternate_screen_on_drop {
+            let _ = execute!(self.writer, LeaveAlternateScreen);
+        }
+        if self.restore_bracketed_paste_on_drop {
+            let _ = execute!(self.writer, DisableBracketedPaste);
+        }
+        if self.restore_focus_change_on_drop {
+            let _ = execute!(self.writer, DisableFocusChange);
+        }
+        if self.restore_keyboard_enhancement_flags_on_drop {
+            let _ = execute!(self.writer, PopKeyboardEnhancementFlags);
+        }
+        let _ = self.writer.flush();
+    }
+}
+
     /// Writes a buffer of bytes to the underlying buffer.
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.writer.write(buf)
@@ -117,10 +321,7 @@ where
     }
 }
 
-impl<W> Backend for CrosstermBackend<W>
-where
-    W: Write,
-{
+impl<W: io::Write> Backend for CrosstermBackend<W> {
     fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
     where
         I: Iterator<Item = (u16, u16, &'a Cell)>,
@@ -145,14 +346,12 @@ where
                 diff.queue(&mut self.writer)?;
                 modifier = cell.modifier;
             }
-            if cell.fg != fg {
-                let color = CColor::from(cell.fg);
-                queue!(self.writer, SetForegroundColor(color))?;
+            if cell.fg != fg || cell.bg != bg {
+                queue!(
+                    self.writer,
+                    SetColors(Colors::new(cell.fg.into(), cell.bg.into()))
+                )?;
                 fg = cell.fg;
-            }
-            if cell.bg != bg {
-                let color = CColor::from(cell.bg);
-                queue!(self.writer, SetBackgroundColor(color))?;
                 bg = cell.bg;
             }
             #[cfg(feature = "underline-color")]
@@ -224,17 +423,17 @@ where
     }
 
     fn size(&self) -> io::Result<Rect> {
-        let (width, height) = terminal::size()?;
+        let (width, height) = crossterm::terminal::size()?;
         Ok(Rect::new(0, 0, width, height))
     }
 
-    fn window_size(&mut self) -> Result<WindowSize, io::Error> {
+    fn window_size(&mut self) -> io::Result<WindowSize> {
         let crossterm::terminal::WindowSize {
             columns,
             rows,
             width,
             height,
-        } = terminal::window_size()?;
+        } = crossterm::terminal::window_size()?;
         Ok(WindowSize {
             columns_rows: Size {
                 width: columns,
@@ -252,25 +451,25 @@ where
 impl From<Color> for CColor {
     fn from(color: Color) -> Self {
         match color {
-            Color::Reset => CColor::Reset,
-            Color::Black => CColor::Black,
-            Color::Red => CColor::DarkRed,
-            Color::Green => CColor::DarkGreen,
-            Color::Yellow => CColor::DarkYellow,
-            Color::Blue => CColor::DarkBlue,
-            Color::Magenta => CColor::DarkMagenta,
-            Color::Cyan => CColor::DarkCyan,
-            Color::Gray => CColor::Grey,
-            Color::DarkGray => CColor::DarkGrey,
-            Color::LightRed => CColor::Red,
-            Color::LightGreen => CColor::Green,
-            Color::LightBlue => CColor::Blue,
-            Color::LightYellow => CColor::Yellow,
-            Color::LightMagenta => CColor::Magenta,
-            Color::LightCyan => CColor::Cyan,
-            Color::White => CColor::White,
-            Color::Indexed(i) => CColor::AnsiValue(i),
-            Color::Rgb(r, g, b) => CColor::Rgb { r, g, b },
+            Color::Reset => Self::Reset,
+            Color::Black => Self::Black,
+            Color::Red => Self::DarkRed,
+            Color::Green => Self::DarkGreen,
+            Color::Yellow => Self::DarkYellow,
+            Color::Blue => Self::DarkBlue,
+            Color::Magenta => Self::DarkMagenta,
+            Color::Cyan => Self::DarkCyan,
+            Color::Gray => Self::Grey,
+            Color::DarkGray => Self::DarkGrey,
+            Color::LightRed => Self::Red,
+            Color::LightGreen => Self::Green,
+            Color::LightBlue => Self::Blue,
+            Color::LightYellow => Self::Yellow,
+            Color::LightMagenta => Self::Magenta,
+            Color::LightCyan => Self::Cyan,
+            Color::White => Self::White,
+            Color::Indexed(i) => Self::AnsiValue(i),
+            Color::Rgb(r, g, b) => Self::Rgb { r, g, b },
         }
     }
 }
@@ -304,18 +503,13 @@ impl From<CColor> for Color {
 /// The `ModifierDiff` struct is used to calculate the difference between two `Modifier`
 /// values. This is useful when updating the terminal display, as it allows for more
 /// efficient updates by only sending the necessary changes.
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 struct ModifierDiff {
     pub from: Modifier,
     pub to: Modifier,
 }
 
 impl ModifierDiff {
-    fn queue<W>(&self, mut w: W) -> io::Result<()>
-    where
-        W: io::Write,
-    {
-        //use crossterm::Attribute;
+
         let removed = self.from - self.to;
         if removed.contains(Modifier::REVERSED) {
             queue!(w, SetAttribute(CAttribute::NoReverse))?;
@@ -377,22 +571,22 @@ impl From<CAttribute> for Modifier {
         // `Attribute*s*` (note the *s*) contains multiple `Attribute`
         // We convert `Attribute` to `Attribute*s*` (containing only 1 value) to avoid implementing
         // the conversion again
-        Modifier::from(CAttributes::from(value))
+        Self::from(CAttributes::from(value))
     }
 }
 
 impl From<CAttributes> for Modifier {
     fn from(value: CAttributes) -> Self {
-        let mut res = Modifier::empty();
+        let mut res = Self::empty();
 
         if value.has(CAttribute::Bold) {
-            res |= Modifier::BOLD;
+            res |= Self::BOLD;
         }
         if value.has(CAttribute::Dim) {
-            res |= Modifier::DIM;
+            res |= Self::DIM;
         }
         if value.has(CAttribute::Italic) {
-            res |= Modifier::ITALIC;
+            res |= Self::ITALIC;
         }
         if value.has(CAttribute::Underlined)
             || value.has(CAttribute::DoubleUnderlined)
@@ -400,22 +594,22 @@ impl From<CAttributes> for Modifier {
             || value.has(CAttribute::Underdotted)
             || value.has(CAttribute::Underdashed)
         {
-            res |= Modifier::UNDERLINED;
+            res |= Self::UNDERLINED;
         }
         if value.has(CAttribute::SlowBlink) {
-            res |= Modifier::SLOW_BLINK;
+            res |= Self::SLOW_BLINK;
         }
         if value.has(CAttribute::RapidBlink) {
-            res |= Modifier::RAPID_BLINK;
+            res |= Self::RAPID_BLINK;
         }
         if value.has(CAttribute::Reverse) {
-            res |= Modifier::REVERSED;
+            res |= Self::REVERSED;
         }
         if value.has(CAttribute::Hidden) {
-            res |= Modifier::HIDDEN;
+            res |= Self::HIDDEN;
         }
         if value.has(CAttribute::CrossedOut) {
-            res |= Modifier::CROSSED_OUT;
+            res |= Self::CROSSED_OUT;
         }
 
         res
@@ -449,10 +643,10 @@ impl From<ContentStyle> for Style {
         }
 
         Self {
-            fg: value.foreground_color.map(|c| c.into()),
-            bg: value.background_color.map(|c| c.into()),
+            fg: value.foreground_color.map(Into::into),
+            bg: value.background_color.map(Into::into),
             #[cfg(feature = "underline-color")]
-            underline_color: value.underline_color.map(|c| c.into()),
+            underline_color: value.underline_color.map(Into::into),
             add_modifier: value.attributes.into(),
             sub_modifier,
         }
@@ -668,6 +862,6 @@ mod tests {
                 ..Default::default()
             }),
             Style::default().underline_color(Color::Red)
-        )
+        );
     }
 }

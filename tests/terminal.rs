@@ -1,10 +1,8 @@
 use std::error::Error;
 
 use ratatui::{
-    assert_buffer_eq,
     backend::{Backend, TestBackend},
     layout::Rect,
-    prelude::Buffer,
     widgets::{Paragraph, Widget},
     Terminal, TerminalOptions, Viewport,
 };
@@ -38,14 +36,14 @@ fn terminal_draw_returns_the_completed_frame() -> Result<(), Box<dyn Error>> {
         let paragraph = Paragraph::new("Test");
         f.render_widget(paragraph, f.size());
     })?;
-    assert_eq!(frame.buffer.get(0, 0).symbol(), "T");
+    assert_eq!(frame.buffer[(0, 0)].symbol(), "T");
     assert_eq!(frame.area, Rect::new(0, 0, 10, 10));
     terminal.backend_mut().resize(8, 8);
     let frame = terminal.draw(|f| {
         let paragraph = Paragraph::new("test");
         f.render_widget(paragraph, f.size());
     })?;
-    assert_eq!(frame.buffer.get(0, 0).symbol(), "t");
+    assert_eq!(frame.buffer[(0, 0)].symbol(), "t");
     assert_eq!(frame.area, Rect::new(0, 0, 8, 8));
     Ok(())
 }
@@ -105,16 +103,13 @@ fn terminal_insert_before_moves_viewport() -> Result<(), Box<dyn Error>> {
         f.render_widget(paragraph, f.size());
     })?;
 
-    assert_buffer_eq!(
-        terminal.backend().buffer().clone(),
-        Buffer::with_lines(vec![
-            "------ Line 1 ------",
-            "------ Line 2 ------",
-            "[---- Viewport ----]",
-            "                    ",
-            "                    ",
-        ])
-    );
+    terminal.backend().assert_buffer_lines([
+        "------ Line 1 ------",
+        "------ Line 2 ------",
+        "[---- Viewport ----]",
+        "                    ",
+        "                    ",
+    ]);
 
     Ok(())
 }
@@ -150,16 +145,13 @@ fn terminal_insert_before_scrolls_on_large_input() -> Result<(), Box<dyn Error>>
         f.render_widget(paragraph, f.size());
     })?;
 
-    assert_buffer_eq!(
-        terminal.backend().buffer().clone(),
-        Buffer::with_lines(vec![
-            "------ Line 2 ------",
-            "------ Line 3 ------",
-            "------ Line 4 ------",
-            "------ Line 5 ------",
-            "[---- Viewport ----]",
-        ])
-    );
+    terminal.backend().assert_buffer_lines([
+        "------ Line 2 ------",
+        "------ Line 3 ------",
+        "------ Line 4 ------",
+        "------ Line 5 ------",
+        "[---- Viewport ----]",
+    ]);
 
     Ok(())
 }
@@ -205,16 +197,13 @@ fn terminal_insert_before_scrolls_on_many_inserts() -> Result<(), Box<dyn Error>
         f.render_widget(paragraph, f.size());
     })?;
 
-    assert_buffer_eq!(
-        terminal.backend().buffer().clone(),
-        Buffer::with_lines(vec![
-            "------ Line 2 ------",
-            "------ Line 3 ------",
-            "------ Line 4 ------",
-            "------ Line 5 ------",
-            "[---- Viewport ----]",
-        ])
-    );
+    terminal.backend().assert_buffer_lines([
+        "------ Line 2 ------",
+        "------ Line 3 ------",
+        "------ Line 4 ------",
+        "------ Line 5 ------",
+        "[---- Viewport ----]",
+    ]);
 
     Ok(())
 }
