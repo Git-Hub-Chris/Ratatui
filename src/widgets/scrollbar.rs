@@ -1,12 +1,27 @@
-use super::StatefulWidget;
+#![warn(clippy::pedantic)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::module_name_repetitions
+)]
+
+use std::iter;
+
+use strum::{Display, EnumString};
+use unicode_width::UnicodeWidthStr;
+
 use crate::{
-    buffer::Buffer,
-    layout::Rect,
-    style::Style,
-    symbols::{block::FULL, line},
+    prelude::*,
+    symbols::scrollbar::{Set, DOUBLE_HORIZONTAL, DOUBLE_VERTICAL},
 };
 
-/// Scrollbar Set
+/// A widget to display a scrollbar
+///
+/// The following components of the scrollbar are customizable in symbol and style. Note the
+/// scrollbar is represented horizontally but it can also be set vertically (which is actually the
+/// default).
+///
 /// ```text
 /// <--▮------->
 /// ^  ^   ^   ^
@@ -15,58 +30,97 @@ use crate::{
 /// │  └──────── thumb
 /// └─────────── begin
 /// ```
-#[derive(Debug, Clone)]
-pub struct Set {
-    pub track: &'static str,
-    pub thumb: &'static str,
-    pub begin: &'static str,
-    pub end: &'static str,
+///
+/// # Important
+///
+/// You must specify the [`ScrollbarState::content_length`] before rendering the `Scrollbar`, or
+/// else the `Scrollbar` will render blank.
+///
+/// # Examples
+///
+/// ```rust
+/// use ratatui::{prelude::*, widgets::*};
+///
+/// # fn render_paragraph_with_scrollbar(frame: &mut Frame, area: Rect) {
+/// let vertical_scroll = 0; // from app state
+///
+/// let items = vec![
+///     Line::from("Item 1"),
+///     Line::from("Item 2"),
+///     Line::from("Item 3"),
+/// ];
+/// let paragraph = Paragraph::new(items.clone())
+///     .scroll((vertical_scroll as u16, 0))
+///     .block(Block::new().borders(Borders::RIGHT)); // to show a background for the scrollbar
+///
+/// let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+///     .begin_symbol(Some("↑"))
+///     .end_symbol(Some("↓"));
+///
+/// let mut scrollbar_state = ScrollbarState::new(items.len()).position(vertical_scroll);
+///
+/// let area = frame.size();
+/// // Note we render the paragraph
+/// frame.render_widget(paragraph, area);
+/// // and the scrollbar, those are separate widgets
+/// frame.render_stateful_widget(
+///     scrollbar,
+///     area.inner(Margin {
+///         // using an inner vertical margin of 1 unit makes the scrollbar inside the block
+///         vertical: 1,
+///         horizontal: 0,
+///     }),
+///     &mut scrollbar_state,
+/// );
+/// # }
+/// ```
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct Scrollbar<'a> {
+    orientation: ScrollbarOrientation,
+    thumb_style: Style,
+    thumb_symbol: &'a str,
+    track_style: Style,
+    track_symbol: Option<&'a str>,
+    begin_symbol: Option<&'a str>,
+    begin_style: Style,
+    end_symbol: Option<&'a str>,
+    end_style: Style,
 }
 
-pub const DOUBLE_VERTICAL: Set = Set {
-    track: line::DOUBLE_VERTICAL,
-    thumb: FULL,
-    begin: "▲",
-    end: "▼",
-};
-
-pub const DOUBLE_HORIZONTAL: Set = Set {
-    track: line::DOUBLE_HORIZONTAL,
-    thumb: FULL,
-    begin: "◄",
-    end: "►",
-};
-
-pub const VERTICAL: Set = Set {
-    track: line::VERTICAL,
-    thumb: FULL,
-    begin: "↑",
-    end: "↓",
-};
-
-pub const HORIZONTAL: Set = Set {
-    track: line::HORIZONTAL,
-    thumb: FULL,
-    begin: "←",
-    end: "→",
-};
-
-/// An enum representing the direction of scrolling in a Scrollbar widget.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum ScrollDirection {
-    /// Forward scroll direction, usually corresponds to scrolling downwards or rightwards.
+/// This is the position of the scrollbar around a given area.
+///
+/// ```plain
+///           HorizontalTop
+///             ┌───────┐
+/// VerticalLeft│       │VerticalRight
+///             └───────┘
+///          HorizontalBottom
+/// ```
+#[derive(Debug, Default, Display, EnumString, Clone, Eq, PartialEq, Hash)]
+pub enum ScrollbarOrientation {
+    /// Positions the scrollbar on the right, scrolling vertically
     #[default]
-    Forward,
-    /// Backward scroll direction, usually corresponds to scrolling upwards or leftwards.
-    Backward,
+    VerticalRight,
+    /// Positions the scrollbar on the left, scrolling vertically
+    VerticalLeft,
+    /// Positions the scrollbar on the bottom, scrolling horizontally
+    HorizontalBottom,
+    /// Positions the scrollbar on the top, scrolling horizontally
+    HorizontalTop,
 }
 
 /// A struct representing the state of a Scrollbar widget.
 ///
+/// # Important
+///
+/// It's essential to set the `content_length` field when using this struct. This field
+/// represents the total length of the scrollable content. The default value is zero
+/// which will result in the Scrollbar not rendering.
+///
 /// For example, in the following list, assume there are 4 bullet points:
 ///
-/// - the `position` is 0
 /// - the `content_length` is 4
+/// - the `position` is 0
 /// - the `viewport_content_length` is 2
 ///
 /// ```text
@@ -79,192 +133,205 @@ pub enum ScrollDirection {
 /// ```
 ///
 /// If you don't have multi-line content, you can leave the `viewport_content_length` set to the
-/// default of 0 and it'll use the track size as a `viewport_content_length`.
-#[derive(Clone, Copy, Debug, Default)]
+/// default and it'll use the track size as a `viewport_content_length`.
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScrollbarState {
-    // The current position within the scrollable content.
-    position: u16,
-    // The total length of the scrollable content.
-    content_length: u16,
-    // The length of content in current viewport.
-    viewport_content_length: u16,
+    /// The total length of the scrollable content.
+    content_length: usize,
+    /// The current position within the scrollable content.
+    position: usize,
+    /// The length of content in current viewport.
+    ///
+    /// FIXME: this should be `Option<usize>`, but it will break serialization to change it.
+    viewport_content_length: usize,
 }
 
-impl ScrollbarState {
-    /// Sets the scroll position of the scrollbar and returns the modified ScrollbarState.
-    pub fn position(mut self, position: u16) -> Self {
-        self.position = position;
-        self
-    }
-
-    /// Sets the length of the scrollable content and returns the modified ScrollbarState.
-    pub fn content_length(mut self, content_length: u16) -> Self {
-        self.content_length = content_length;
-        self
-    }
-
-    /// Sets the length of the viewport content and returns the modified ScrollbarState.
-    pub fn viewport_content_length(mut self, viewport_content_length: u16) -> Self {
-        self.viewport_content_length = viewport_content_length;
-        self
-    }
-
-    /// Decrements the scroll position by one, ensuring it doesn't go below zero.
-    pub fn prev(&mut self) {
-        self.position = self.position.saturating_sub(1);
-    }
-
-    /// Increments the scroll position by one, ensuring it doesn't exceed the length of the content.
-    pub fn next(&mut self) {
-        self.position = self
-            .position
-            .saturating_add(1)
-            .clamp(0, self.content_length.saturating_sub(1))
-    }
-
-    /// Sets the scroll position to the start of the scrollable content.
-    pub fn first(&mut self) {
-        self.position = 0;
-    }
-
-    /// Sets the scroll position to the end of the scrollable content.
-    pub fn last(&mut self) {
-        self.position = self.content_length.saturating_sub(1)
-    }
-
-    /// Changes the scroll position based on the provided ScrollDirection.
-    pub fn scroll(&mut self, direction: ScrollDirection) {
-        match direction {
-            ScrollDirection::Forward => {
-                self.next();
-            }
-            ScrollDirection::Backward => {
-                self.prev();
-            }
-        }
-    }
-}
-
-/// Scrollbar Orientation
-#[derive(Default, Debug, Clone)]
-pub enum ScrollbarOrientation {
+/// An enum representing a scrolling direction.
+///
+/// This is used with [`ScrollbarState::scroll`].
+///
+/// It is useful for example when you want to store in which direction to scroll.
+#[derive(Debug, Default, Display, EnumString, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum ScrollDirection {
+    /// Forward scroll direction, usually corresponds to scrolling downwards or rightwards.
     #[default]
-    VerticalRight,
-    VerticalLeft,
-    HorizontalBottom,
-    HorizontalTop,
-}
-
-/// Scrollbar widget for tui-rs library.
-///
-/// This widget can be used to display a scrollbar in a terminal user interface.
-/// The following components of the scrollbar are customizable in symbol and style.
-///
-/// ```text
-/// <--▮------->
-/// ^  ^   ^   ^
-/// │  │   │   └ end
-/// │  │   └──── track
-/// │  └──────── thumb
-/// └─────────── begin
-/// ```
-#[derive(Debug, Clone)]
-pub struct Scrollbar<'a> {
-    orientation: ScrollbarOrientation,
-    thumb_style: Style,
-    thumb_symbol: &'a str,
-    track_style: Style,
-    track_symbol: &'a str,
-    begin_symbol: Option<&'a str>,
-    begin_style: Style,
-    end_symbol: Option<&'a str>,
-    end_style: Style,
+    Forward,
+    /// Backward scroll direction, usually corresponds to scrolling upwards or leftwards.
+    Backward,
 }
 
 impl<'a> Default for Scrollbar<'a> {
     fn default() -> Self {
-        Self {
-            orientation: ScrollbarOrientation::default(),
-            thumb_symbol: DOUBLE_VERTICAL.thumb,
-            thumb_style: Style::default(),
-            track_symbol: DOUBLE_VERTICAL.track,
-            track_style: Style::default(),
-            begin_symbol: Some(DOUBLE_VERTICAL.begin),
-            begin_style: Style::default(),
-            end_symbol: Some(DOUBLE_VERTICAL.end),
-            end_style: Style::default(),
-        }
+        Self::new(ScrollbarOrientation::default())
     }
 }
 
 impl<'a> Scrollbar<'a> {
-    pub fn new(orientation: ScrollbarOrientation) -> Self {
-        Self::default().orientation(orientation)
-    }
-
-    /// Sets the orientation of the scrollbar.
-    /// Resets the symbols to [`DOUBLE_VERTICAL`] or [`DOUBLE_HORIZONTAL`] based on orientation
-    pub fn orientation(mut self, orientation: ScrollbarOrientation) -> Self {
-        self.orientation = orientation;
-        let set = if self.is_vertical() {
+    /// Creates a new scrollbar with the given orientation.
+    ///
+    /// Most of the time you'll want [`ScrollbarOrientation::VerticalRight`] or
+    /// [`ScrollbarOrientation::HorizontalBottom`]. See [`ScrollbarOrientation`] for more options.
+    #[must_use = "creates the Scrollbar"]
+    pub const fn new(orientation: ScrollbarOrientation) -> Self {
+        let symbols = if orientation.is_vertical() {
             DOUBLE_VERTICAL
         } else {
             DOUBLE_HORIZONTAL
         };
-        self.symbols(set)
+        Self::new_with_symbols(orientation, &symbols)
+    }
+
+    /// Creates a new scrollbar with the given orientation and symbol set.
+    #[must_use = "creates the Scrollbar"]
+    const fn new_with_symbols(orientation: ScrollbarOrientation, symbols: &Set) -> Self {
+        Self {
+            orientation,
+            thumb_symbol: symbols.thumb,
+            thumb_style: Style::new(),
+            track_symbol: Some(symbols.track),
+            track_style: Style::new(),
+            begin_symbol: Some(symbols.begin),
+            begin_style: Style::new(),
+            end_symbol: Some(symbols.end),
+            end_style: Style::new(),
+        }
+    }
+
+    /// Sets the position of the scrollbar.
+    ///
+    /// The orientation of the scrollbar is the position it will take around a [`Rect`]. See
+    /// [`ScrollbarOrientation`] for more details.
+    ///
+    /// Resets the symbols to [`DOUBLE_VERTICAL`] or [`DOUBLE_HORIZONTAL`] based on orientation.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn orientation(mut self, orientation: ScrollbarOrientation) -> Self {
+        self.orientation = orientation;
+        let symbols = if self.orientation.is_vertical() {
+            DOUBLE_VERTICAL
+        } else {
+            DOUBLE_HORIZONTAL
+        };
+        self.symbols(symbols)
     }
 
     /// Sets the orientation and symbols for the scrollbar from a [`Set`].
-    pub fn orientation_and_symbol(mut self, orientation: ScrollbarOrientation, set: Set) -> Self {
+    ///
+    /// This has the same effect as calling [`Scrollbar::orientation`] and then
+    /// [`Scrollbar::symbols`]. See those for more details.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn orientation_and_symbol(
+        mut self,
+        orientation: ScrollbarOrientation,
+        symbols: Set,
+    ) -> Self {
         self.orientation = orientation;
-        self.symbols(set)
+        self.symbols(symbols)
     }
 
     /// Sets the symbol that represents the thumb of the scrollbar.
-    pub fn thumb_symbol(mut self, thumb_symbol: &'a str) -> Self {
+    ///
+    /// The thumb is the handle representing the progression on the scrollbar. See [`Scrollbar`]
+    /// for a visual example of what this represents.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn thumb_symbol(mut self, thumb_symbol: &'a str) -> Self {
         self.thumb_symbol = thumb_symbol;
         self
     }
 
-    /// Sets the style that represents the thumb of the scrollbar.
-    pub fn thumb_style(mut self, thumb_style: Style) -> Self {
-        self.thumb_style = thumb_style;
+    /// Sets the style on the scrollbar thumb.
+    ///
+    /// The thumb is the handle representing the progression on the scrollbar. See [`Scrollbar`]
+    /// for a visual example of what this represents.
+    ///
+    /// `style` accepts any type that is convertible to [`Style`] (e.g. [`Style`], [`Color`], or
+    /// your own type that implements [`Into<Style>`]).
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn thumb_style<S: Into<Style>>(mut self, thumb_style: S) -> Self {
+        self.thumb_style = thumb_style.into();
         self
     }
 
     /// Sets the symbol that represents the track of the scrollbar.
-    pub fn track_symbol(mut self, track_symbol: &'a str) -> Self {
+    ///
+    /// See [`Scrollbar`] for a visual example of what this represents.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn track_symbol(mut self, track_symbol: Option<&'a str>) -> Self {
         self.track_symbol = track_symbol;
         self
     }
 
     /// Sets the style that is used for the track of the scrollbar.
-    pub fn track_style(mut self, track_style: Style) -> Self {
-        self.track_style = track_style;
+    ///
+    /// See [`Scrollbar`] for a visual example of what this represents.
+    ///
+    /// `style` accepts any type that is convertible to [`Style`] (e.g. [`Style`], [`Color`], or
+    /// your own type that implements [`Into<Style>`]).
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn track_style<S: Into<Style>>(mut self, track_style: S) -> Self {
+        self.track_style = track_style.into();
         self
     }
 
     /// Sets the symbol that represents the beginning of the scrollbar.
-    pub fn begin_symbol(mut self, begin_symbol: Option<&'a str>) -> Self {
+    ///
+    /// See [`Scrollbar`] for a visual example of what this represents.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn begin_symbol(mut self, begin_symbol: Option<&'a str>) -> Self {
         self.begin_symbol = begin_symbol;
         self
     }
 
     /// Sets the style that is used for the beginning of the scrollbar.
-    pub fn begin_style(mut self, begin_style: Style) -> Self {
-        self.begin_style = begin_style;
+    ///
+    /// See [`Scrollbar`] for a visual example of what this represents.
+    ///
+    /// `style` accepts any type that is convertible to [`Style`] (e.g. [`Style`], [`Color`], or
+    /// your own type that implements [`Into<Style>`]).
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn begin_style<S: Into<Style>>(mut self, begin_style: S) -> Self {
+        self.begin_style = begin_style.into();
         self
     }
 
     /// Sets the symbol that represents the end of the scrollbar.
-    pub fn end_symbol(mut self, end_symbol: Option<&'a str>) -> Self {
+    ///
+    /// See [`Scrollbar`] for a visual example of what this represents.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn end_symbol(mut self, end_symbol: Option<&'a str>) -> Self {
         self.end_symbol = end_symbol;
         self
     }
 
     /// Sets the style that is used for the end of the scrollbar.
-    pub fn end_style(mut self, end_style: Style) -> Self {
-        self.end_style = end_style;
+    ///
+    /// See [`Scrollbar`] for a visual example of what this represents.
+    ///
+    /// `style` accepts any type that is convertible to [`Style`] (e.g. [`Style`], [`Color`], or
+    /// your own type that implements [`Into<Style>`]).
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn end_style<S: Into<Style>>(mut self, end_style: S) -> Self {
+        self.end_style = end_style.into();
         self
     }
 
@@ -279,22 +346,32 @@ impl<'a> Scrollbar<'a> {
     /// └─────────── begin
     /// ```
     ///
-    /// Only sets begin_symbol and end_symbol if they already contain a value.
-    /// If begin_symbol and/or end_symbol were set to `None` explicitly, this function will respect
-    /// that choice.
-    pub fn symbols(mut self, symbol: Set) -> Self {
-        self.track_symbol = symbol.track;
-        self.thumb_symbol = symbol.thumb;
+    /// Only sets `begin_symbol`, `end_symbol` and `track_symbol` if they already contain a value.
+    /// If they were set to `None` explicitly, this function will respect that choice. Use their
+    /// respective setters to change their value.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[allow(clippy::needless_pass_by_value)] // Breaking change
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn symbols(mut self, symbols: Set) -> Self {
+        self.thumb_symbol = symbols.thumb;
+        if self.track_symbol.is_some() {
+            self.track_symbol = Some(symbols.track);
+        }
         if self.begin_symbol.is_some() {
-            self.begin_symbol = Some(symbol.begin);
+            self.begin_symbol = Some(symbols.begin);
         }
         if self.end_symbol.is_some() {
-            self.end_symbol = Some(symbol.end);
+            self.end_symbol = Some(symbols.end);
         }
         self
     }
 
     /// Sets the style used for the various parts of the scrollbar from a [`Style`].
+    ///
+    /// `style` accepts any type that is convertible to [`Style`] (e.g. [`Style`], [`Color`], or
+    /// your own type that implements [`Into<Style>`]).
+    ///
     /// ```text
     /// <--▮------->
     /// ^  ^   ^   ^
@@ -303,128 +380,98 @@ impl<'a> Scrollbar<'a> {
     /// │  └──────── thumb
     /// └─────────── begin
     /// ```
-    pub fn style(mut self, style: Style) -> Self {
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub fn style<S: Into<Style>>(mut self, style: S) -> Self {
+        let style = style.into();
         self.track_style = style;
         self.thumb_style = style;
         self.begin_style = style;
         self.end_style = style;
         self
     }
+}
 
-    fn is_vertical(&self) -> bool {
-        match self.orientation {
-            ScrollbarOrientation::VerticalRight | ScrollbarOrientation::VerticalLeft => true,
-            ScrollbarOrientation::HorizontalBottom | ScrollbarOrientation::HorizontalTop => false,
+impl ScrollbarState {
+    /// Constructs a new [`ScrollbarState`] with the specified content length.
+    ///
+    /// `content_length` is the total number of element, that can be scrolled. See
+    /// [`ScrollbarState`] for more details.
+    #[must_use = "creates the ScrollbarState"]
+    pub const fn new(content_length: usize) -> Self {
+        Self {
+            content_length,
+            position: 0,
+            viewport_content_length: 0,
         }
     }
 
-    fn get_track_area(&self, area: Rect) -> Rect {
-        // Decrease track area if a begin arrow is present
-        let area = if self.begin_symbol.is_some() {
-            if self.is_vertical() {
-                // For vertical scrollbar, reduce the height by one
-                Rect::new(
-                    area.x,
-                    area.y + 1,
-                    area.width,
-                    area.height.saturating_sub(1),
-                )
-            } else {
-                // For horizontal scrollbar, reduce the width by one
-                Rect::new(
-                    area.x + 1,
-                    area.y,
-                    area.width.saturating_sub(1),
-                    area.height,
-                )
-            }
-        } else {
-            area
-        };
-        // Further decrease scrollbar area if an end arrow is present
-        if self.end_symbol.is_some() {
-            if self.is_vertical() {
-                // For vertical scrollbar, reduce the height by one
-                Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1))
-            } else {
-                // For horizontal scrollbar, reduce the width by one
-                Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height)
-            }
-        } else {
-            area
-        }
+    /// Sets the scroll position of the scrollbar.
+    ///
+    /// This represents the number of scrolled items.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn position(mut self, position: usize) -> Self {
+        self.position = position;
+        self
     }
 
-    fn should_not_render(&self, track_start: u16, track_end: u16, content_length: u16) -> bool {
-        if track_end - track_start == 0 || content_length == 0 {
-            return true;
-        }
-        false
+    /// Sets the length of the scrollable content.
+    ///
+    /// This is the number of scrollable items. If items have a length of one, then this is the
+    /// same as the number of scrollable cells.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn content_length(mut self, content_length: usize) -> Self {
+        self.content_length = content_length;
+        self
     }
 
-    fn get_track_start_end(&self, area: Rect) -> (u16, u16, u16) {
-        match self.orientation {
-            ScrollbarOrientation::VerticalRight => {
-                (area.top(), area.bottom(), area.right().saturating_sub(1))
-            }
-            ScrollbarOrientation::VerticalLeft => (area.top(), area.bottom(), area.left()),
-            ScrollbarOrientation::HorizontalBottom => {
-                (area.left(), area.right(), area.bottom().saturating_sub(1))
-            }
-            ScrollbarOrientation::HorizontalTop => (area.left(), area.right(), area.top()),
-        }
+    /// Sets the items' size.
+    ///
+    /// This is a fluent setter method which must be chained or used as it consumes self
+    #[must_use = "method moves the value of self and returns the modified value"]
+    pub const fn viewport_content_length(mut self, viewport_content_length: usize) -> Self {
+        self.viewport_content_length = viewport_content_length;
+        self
     }
 
-    /// Calculate the starting and ending position of a scrollbar thumb.
-    ///
-    /// The scrollbar thumb's position and size are determined based on the current state of the
-    /// scrollbar, and the dimensions of the scrollbar track.
-    ///
-    /// This function returns a tuple `(thumb_start, thumb_end)` where `thumb_start` is the position
-    /// at which the scrollbar thumb begins, and `thumb_end` is the position at which the
-    /// scrollbar thumb ends.
-    ///
-    /// The size of the thumb (i.e., `thumb_end - thumb_start`) is proportional to the ratio of the
-    /// viewport content length to the total content length.
-    ///
-    /// The position of the thumb (i.e., `thumb_start`) is proportional to the ratio of the current
-    /// scroll position to the total content length.
-    fn get_thumb_start_end(
-        &self,
-        state: &ScrollbarState,
-        track_start_end: (u16, u16),
-    ) -> (u16, u16) {
-        // let (track_start, track_end) = track_start_end;
-        // let track_size = track_end - track_start;
-        // let thumb_size =
-        //     ((state.viewport_content_length / state.content_length) * track_size).max(1);
-        // let thumb_start = (state.position / state.content_length) *
-        //                    state.viewport_content_length;
-        // let thumb_end = thumb_size + thumb_start;
-        // (thumb_start, thumb_end)
+    /// Decrements the scroll position by one, ensuring it doesn't go below zero.
+    pub fn prev(&mut self) {
+        self.position = self.position.saturating_sub(1);
+    }
 
-        let (track_start, track_end) = track_start_end;
+    /// Increments the scroll position by one, ensuring it doesn't exceed the length of the content.
+    pub fn next(&mut self) {
+        self.position = self
+            .position
+            .saturating_add(1)
+            .min(self.content_length.saturating_sub(1));
+    }
 
-        let viewport_content_length = if state.viewport_content_length == 0 {
-            track_end - track_start
-        } else {
-            state.viewport_content_length
-        };
+    /// Sets the scroll position to the start of the scrollable content.
+    pub fn first(&mut self) {
+        self.position = 0;
+    }
 
-        let scroll_position_ratio = (state.position as f64 / state.content_length as f64).min(1.0);
+    /// Sets the scroll position to the end of the scrollable content.
+    pub fn last(&mut self) {
+        self.position = self.content_length.saturating_sub(1);
+    }
 
-        let thumb_size = (((viewport_content_length as f64 / state.content_length as f64)
-            * (track_end - track_start) as f64)
-            .round() as u16)
-            .max(1);
-
-        let track_size = (track_end - track_start).saturating_sub(thumb_size);
-
-        let thumb_start = track_start + (scroll_position_ratio * track_size as f64).round() as u16;
-
-        let thumb_end = thumb_start + thumb_size;
-
-        (thumb_start, thumb_end)
+    /// Changes the scroll position based on the provided [`ScrollDirection`].
+    pub fn scroll(&mut self, direction: ScrollDirection) {
+        match direction {
+            ScrollDirection::Forward => {
+                self.next();
+            }
+            ScrollDirection::Backward => {
+                self.prev();
+            }
+        }
     }
 }
 
@@ -432,450 +479,881 @@ impl<'a> StatefulWidget for Scrollbar<'a> {
     type State = ScrollbarState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        //
-        // For ScrollbarOrientation::VerticalRight
-        //
-        //                   ┌───────── track_axis  (x)
-        //                   v
-        //   ┌───────────────┐
-        //   │               ║<──────── track_start (y1)
-        //   │               █
-        //   │               █
-        //   │               ║
-        //   │               ║<──────── track_end   (y2)
-        //   └───────────────┘
-        //
-        // For ScrollbarOrientation::HorizontalBottom
-        //
-        //   ┌───────────────┐
-        //   │               │
-        //   │               │
-        //   │               │
-        //   └═══███═════════┘<──────── track_axis  (y)
-        //    ^             ^
-        //    │             └────────── track_end   (x2)
-        //    │
-        //    └──────────────────────── track_start (x1)
-        //
-
-        // Find track_start, track_end, and track_axis
-        let area = self.get_track_area(area);
-        let (track_start, track_end, track_axis) = self.get_track_start_end(area);
-
-        if self.should_not_render(track_start, track_end, state.content_length) {
+        if state.content_length == 0 || self.track_length_excluding_arrow_heads(area) == 0 {
             return;
         }
 
-        let (thumb_start, thumb_end) = self.get_thumb_start_end(state, (track_start, track_end));
-
-        for i in track_start..track_end {
-            let (style, symbol) = if i >= thumb_start && i < thumb_end {
-                (self.thumb_style, self.thumb_symbol)
-            } else {
-                (self.track_style, self.track_symbol)
-            };
-
-            if self.is_vertical() {
-                buf.set_string(track_axis, i, symbol, style);
-            } else {
-                buf.set_string(i, track_axis, symbol, style);
-            }
-        }
-
-        if let Some(s) = self.begin_symbol {
-            if self.is_vertical() {
-                buf.set_string(track_axis, track_start - 1, s, self.begin_style);
-            } else {
-                buf.set_string(track_start - 1, track_axis, s, self.begin_style);
-            }
-        };
-        if let Some(s) = self.end_symbol {
-            if self.is_vertical() {
-                buf.set_string(track_axis, track_end, s, self.end_style);
-            } else {
-                buf.set_string(track_end, track_axis, s, self.end_style);
+        let mut bar = self.bar_symbols(area, state);
+        let area = self.scollbar_area(area);
+        for x in area.left()..area.right() {
+            for y in area.top()..area.bottom() {
+                if let Some(Some((symbol, style))) = bar.next() {
+                    buf.set_string(x, y, symbol, style);
+                }
             }
         }
     }
 }
 
+impl Scrollbar<'_> {
+    /// Returns an iterator over the symbols and styles of the scrollbar.
+    fn bar_symbols(
+        &self,
+        area: Rect,
+        state: &ScrollbarState,
+    ) -> impl Iterator<Item = Option<(&str, Style)>> {
+        let (track_start_len, thumb_len, track_end_len) = self.part_lengths(area, state);
+
+        let begin = self.begin_symbol.map(|s| Some((s, self.begin_style)));
+        let track = Some(self.track_symbol.map(|s| (s, self.track_style)));
+        let thumb = Some(Some((self.thumb_symbol, self.thumb_style)));
+        let end = self.end_symbol.map(|s| Some((s, self.end_style)));
+
+        // `<`
+        iter::once(begin)
+            // `<═══`
+            .chain(iter::repeat(track).take(track_start_len))
+            // `<═══█████`
+            .chain(iter::repeat(thumb).take(thumb_len))
+            // `<═══█████═══════`
+            .chain(iter::repeat(track).take(track_end_len))
+            // `<═══█████═══════>`
+            .chain(iter::once(end))
+            .flatten()
+    }
+
+    /// Returns the lengths of the parts of a scrollbar
+    ///
+    /// The scrollbar has 3 parts of note:
+    /// - `<═══█████═══════>`: full scrollbar
+    /// - ` ═══             `: track start
+    /// - `    █████        `: thumb
+    /// - `         ═══════ `: track end
+    ///
+    /// This method returns the length of the start, thumb, and end as a tuple.
+    fn part_lengths(&self, area: Rect, state: &ScrollbarState) -> (usize, usize, usize) {
+        let track_length = f64::from(self.track_length_excluding_arrow_heads(area));
+        let viewport_length = self.viewport_length(state, area) as f64;
+
+        // Ensure that the position of the thumb is within the bounds of the content taking into
+        // account the content and viewport length. When the last line of the content is at the top
+        // of the viewport, the thumb should be at the bottom of the track.
+        let max_position = state.content_length.saturating_sub(1) as f64;
+        let start_position = (state.position as f64).clamp(0.0, max_position);
+        let max_viewport_position = max_position + viewport_length;
+        let end_position = start_position + viewport_length;
+
+        // Calculate the start and end positions of the thumb. The size will be proportional to the
+        // viewport length compared to the total amount of possible visible rows.
+        let thumb_start = start_position * track_length / max_viewport_position;
+        let thumb_end = end_position * track_length / max_viewport_position;
+
+        // Make sure that the thumb is at least 1 cell long by ensuring that the start of the thumb
+        // is less than the track_len. We use the positions instead of the sizes and use nearest
+        // integer instead of floor / ceil to avoid problems caused by rounding errors.
+        let thumb_start = thumb_start.round().clamp(0.0, track_length - 1.0) as usize;
+        let thumb_end = thumb_end.round().clamp(0.0, track_length) as usize;
+
+        let thumb_length = thumb_end.saturating_sub(thumb_start).max(1);
+        let track_end_length = (track_length as usize).saturating_sub(thumb_start + thumb_length);
+
+        (thumb_start, thumb_length, track_end_length)
+    }
+
+    fn scollbar_area(&self, area: Rect) -> Rect {
+        match self.orientation {
+            ScrollbarOrientation::VerticalLeft => area.columns().next(),
+            ScrollbarOrientation::VerticalRight => area.columns().last(),
+            ScrollbarOrientation::HorizontalTop => area.rows().next(),
+            ScrollbarOrientation::HorizontalBottom => area.rows().last(),
+        }
+        .expect("Scrollbar area is empty") // this should never happen as we check for empty area
+    }
+
+    /// Calculates length of the track excluding the arrow heads
+    ///
+    /// ```plain
+    ///        ┌────────── track_length
+    ///  vvvvvvvvvvvvvvv
+    /// <═══█████═══════>
+    /// ```
+    fn track_length_excluding_arrow_heads(&self, area: Rect) -> u16 {
+        let start_len = self.begin_symbol.map_or(0, |s| s.width() as u16);
+        let end_len = self.end_symbol.map_or(0, |s| s.width() as u16);
+        let arrows_len = start_len.saturating_add(end_len);
+        if self.orientation.is_vertical() {
+            area.height.saturating_sub(arrows_len)
+        } else {
+            area.width.saturating_sub(arrows_len)
+        }
+    }
+
+    const fn viewport_length(&self, state: &ScrollbarState, area: Rect) -> usize {
+        if state.viewport_content_length != 0 {
+            state.viewport_content_length
+        } else if self.orientation.is_vertical() {
+            area.height as usize
+        } else {
+            area.width as usize
+        }
+    }
+}
+
+impl ScrollbarOrientation {
+    /// Returns `true` if the scrollbar is vertical.
+    #[must_use = "returns the requested kind of the scrollbar"]
+    pub const fn is_vertical(&self) -> bool {
+        matches!(self, Self::VerticalRight | Self::VerticalLeft)
+    }
+
+    /// Returns `true` if the scrollbar is horizontal.
+    #[must_use = "returns the requested kind of the scrollbar"]
+    pub const fn is_horizontal(&self) -> bool {
+        matches!(self, Self::HorizontalBottom | Self::HorizontalTop)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    use strum::ParseError;
+    use unicode_width::UnicodeWidthStr;
+
     use super::*;
-    use crate::assert_buffer_eq;
 
     #[test]
-    fn test_no_render_when_area_zero() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 0, 0));
-        let mut state = ScrollbarState::default().position(0).content_length(1);
-        Scrollbar::default().render(buffer.area, &mut buffer, &mut state);
-        assert_buffer_eq!(buffer, Buffer::empty(buffer.area));
+    fn scroll_direction_to_string() {
+        assert_eq!(ScrollDirection::Forward.to_string(), "Forward");
+        assert_eq!(ScrollDirection::Backward.to_string(), "Backward");
     }
 
     #[test]
-    fn test_no_render_when_height_zero_with_without_arrows() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 3, 0));
-        let mut state = ScrollbarState::default().position(0).content_length(1);
-        Scrollbar::default().render(buffer.area, &mut buffer, &mut state);
-        assert_buffer_eq!(buffer, Buffer::empty(buffer.area));
-
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 3, 0));
-        let mut state = ScrollbarState::default().position(0).content_length(1);
-        Scrollbar::default()
-            .begin_symbol(None)
-            .end_symbol(None)
-            .render(buffer.area, &mut buffer, &mut state);
-        assert_buffer_eq!(buffer, Buffer::empty(buffer.area));
-    }
-
-    #[test]
-    fn test_no_render_when_height_too_small_for_arrows() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 2));
-        let mut state = ScrollbarState::default().position(0).content_length(1);
-        Scrollbar::default().render(buffer.area, &mut buffer, &mut state);
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["    ", "    "]));
-    }
-
-    #[test]
-    fn test_renders_all_thumbs_at_minimum_height_without_arrows() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 2));
-        let mut state = ScrollbarState::default().position(0).content_length(1);
-        Scrollbar::default()
-            .begin_symbol(None)
-            .end_symbol(None)
-            .render(buffer.area, &mut buffer, &mut state);
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["   █", "   █"]));
-    }
-
-    #[test]
-    fn test_renders_all_thumbs_at_minimum_height_and_minimum_width_without_arrows() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 1, 2));
-        let mut state = ScrollbarState::default().position(0).content_length(1);
-        Scrollbar::default()
-            .begin_symbol(None)
-            .end_symbol(None)
-            .render(buffer.area, &mut buffer, &mut state);
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["█", "█"]));
-    }
-
-    #[test]
-    fn test_renders_two_arrows_one_thumb_at_minimum_height_with_arrows() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 3));
-        let mut state = ScrollbarState::default().position(0).content_length(1);
-        Scrollbar::default().render(buffer.area, &mut buffer, &mut state);
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["   ▲", "   █", "   ▼"]));
-    }
-
-    #[test]
-    fn test_no_render_when_content_length_zero() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 2, 2));
-        let mut state = ScrollbarState::default().position(0).content_length(0);
-        Scrollbar::default().render(buffer.area, &mut buffer, &mut state);
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec!["  ", "  "]));
-    }
-
-    #[test]
-    fn test_renders_all_thumbs_when_height_equals_content_length() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 2, 2));
-        let mut state = ScrollbarState::default().position(0).content_length(2);
-        Scrollbar::default()
-            .begin_symbol(None)
-            .end_symbol(None)
-            .render(buffer.area, &mut buffer, &mut state);
-        assert_buffer_eq!(buffer, Buffer::with_lines(vec![" █", " █"]));
-
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 2, 8));
-        let mut state = ScrollbarState::default().position(0).content_length(8);
-        Scrollbar::default()
-            .begin_symbol(None)
-            .end_symbol(None)
-            .render(buffer.area, &mut buffer, &mut state);
-        assert_buffer_eq!(
-            buffer,
-            Buffer::with_lines(vec![" █", " █", " █", " █", " █", " █", " █", " █"])
+    fn scroll_direction_from_str() {
+        assert_eq!("Forward".parse(), Ok(ScrollDirection::Forward));
+        assert_eq!("Backward".parse(), Ok(ScrollDirection::Backward));
+        assert_eq!(
+            ScrollDirection::from_str(""),
+            Err(ParseError::VariantNotFound)
         );
     }
 
     #[test]
-    fn test_renders_single_vertical_thumb_when_content_length_square_of_height() {
-        for i in 0..=17 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 2, 4));
-            let mut state = ScrollbarState::default().position(i).content_length(16);
-            Scrollbar::default()
-                .begin_symbol(None)
-                .end_symbol(None)
-                .render(buffer.area, &mut buffer, &mut state);
-            let expected = if i <= 2 {
-                vec![" █", " ║", " ║", " ║"]
-            } else if i <= 7 {
-                vec![" ║", " █", " ║", " ║"]
-            } else if i <= 13 {
-                vec![" ║", " ║", " █", " ║"]
-            } else {
-                vec![" ║", " ║", " ║", " █"]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
+    fn scrollbar_orientation_to_string() {
+        use ScrollbarOrientation::*;
+        assert_eq!(VerticalRight.to_string(), "VerticalRight");
+        assert_eq!(VerticalLeft.to_string(), "VerticalLeft");
+        assert_eq!(HorizontalBottom.to_string(), "HorizontalBottom");
+        assert_eq!(HorizontalTop.to_string(), "HorizontalTop");
     }
 
     #[test]
-    fn test_renders_single_horizontal_thumb_when_content_length_square_of_width() {
-        for i in 0..=17 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 2));
-            let mut state = ScrollbarState::default().position(i).content_length(16);
-            Scrollbar::default()
-                .begin_symbol(None)
-                .end_symbol(None)
-                .orientation(ScrollbarOrientation::HorizontalBottom)
-                .render(buffer.area, &mut buffer, &mut state);
-            let expected = if i <= 2 {
-                vec!["    ", "█═══"]
-            } else if i <= 7 {
-                vec!["    ", "═█══"]
-            } else if i <= 13 {
-                vec!["    ", "══█═"]
-            } else {
-                vec!["    ", "═══█"]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
+    fn scrollbar_orientation_from_str() {
+        use ScrollbarOrientation::*;
+        assert_eq!("VerticalRight".parse(), Ok(VerticalRight));
+        assert_eq!("VerticalLeft".parse(), Ok(VerticalLeft));
+        assert_eq!("HorizontalBottom".parse(), Ok(HorizontalBottom));
+        assert_eq!("HorizontalTop".parse(), Ok(HorizontalTop));
+        assert_eq!(
+            ScrollbarOrientation::from_str(""),
+            Err(ParseError::VariantNotFound)
+        );
+    }
     }
 
-    #[test]
-    fn test_renders_one_thumb_for_large_content_relative_to_height() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 2));
-        let mut state = ScrollbarState::default().position(0).content_length(1600);
-        Scrollbar::default()
+    #[rstest]
+    #[case::position_0("#####-----", 0, 10)]
+    #[case::position_1("-#####----", 1, 10)]
+    #[case::position_2("-#####----", 2, 10)]
+    #[case::position_3("--#####---", 3, 10)]
+    #[case::position_4("--#####---", 4, 10)]
+    #[case::position_5("---#####--", 5, 10)]
+    #[case::position_6("---#####--", 6, 10)]
+    #[case::position_7("----#####-", 7, 10)]
+    #[case::position_8("----#####-", 8, 10)]
+    #[case::position_9("-----#####", 9, 10)]
+    fn render_scrollbar_simple(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        scrollbar_no_arrows: Scrollbar,
+    ) {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, expected.width() as u16, 1));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        scrollbar_no_arrows.render_stateful(buffer.area, &mut buffer, &mut state);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
+
+    #[rstest]
+    #[case::position_0("          ", 0, 0)]
+    fn render_scrollbar_nobar(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        scrollbar_no_arrows: Scrollbar,
+    ) {
+        let size = expected.width();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size as u16, 1));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        scrollbar_no_arrows.render_stateful(buffer.area, &mut buffer, &mut state);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
+
+    #[rstest]
+    #[case::fullbar_position_0("##########", 0, 1)]
+    #[case::almost_fullbar_position_0("#########-", 0, 2)]
+    #[case::almost_fullbar_position_1("-#########", 1, 2)]
+    fn render_scrollbar_fullbar(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        scrollbar_no_arrows: Scrollbar,
+    ) {
+        let size = expected.width();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size as u16, 1));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        scrollbar_no_arrows.render_stateful(buffer.area, &mut buffer, &mut state);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
+
+    #[rstest]
+    #[case::position_0("#########-", 0, 2)]
+    #[case::position_1("-#########", 1, 2)]
+    fn render_scrollbar_almost_fullbar(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        scrollbar_no_arrows: Scrollbar,
+    ) {
+        let size = expected.width();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size as u16, 1));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        scrollbar_no_arrows.render_stateful(buffer.area, &mut buffer, &mut state);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
+
+    #[rstest]
+    #[case::position_0("█████═════", 0, 10)]
+    #[case::position_1("═█████════", 1, 10)]
+    #[case::position_2("═█████════", 2, 10)]
+    #[case::position_3("══█████═══", 3, 10)]
+    #[case::position_4("══█████═══", 4, 10)]
+    #[case::position_5("═══█████══", 5, 10)]
+    #[case::position_6("═══█████══", 6, 10)]
+    #[case::position_7("════█████═", 7, 10)]
+    #[case::position_8("════█████═", 8, 10)]
+    #[case::position_9("═════█████", 9, 10)]
+    #[case::position_out_of_bounds("═════█████", 100, 10)]
+    fn render_scrollbar_without_symbols(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 1));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
             .begin_symbol(None)
             .end_symbol(None)
-            .orientation(ScrollbarOrientation::HorizontalBottom)
-            .render(buffer.area, &mut buffer, &mut state);
-        let expected = vec!["    ", "█═══"];
-        assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
+            .render_stateful(buffer.area, &mut buffer, &mut state);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
 
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 2));
-        let mut state = ScrollbarState::default().position(800).content_length(1600);
-        Scrollbar::default()
+    #[rstest]
+    #[case::position_0("█████     ", 0, 10)]
+    #[case::position_1(" █████    ", 1, 10)]
+    #[case::position_2(" █████    ", 2, 10)]
+    #[case::position_3("  █████   ", 3, 10)]
+    #[case::position_4("  █████   ", 4, 10)]
+    #[case::position_5("   █████  ", 5, 10)]
+    #[case::position_6("   █████  ", 6, 10)]
+    #[case::position_7("    █████ ", 7, 10)]
+    #[case::position_8("    █████ ", 8, 10)]
+    #[case::position_9("     █████", 9, 10)]
+    #[case::position_out_of_bounds("     █████", 100, 10)]
+    fn render_scrollbar_without_track_symbols(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 1));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+            .track_symbol(None)
             .begin_symbol(None)
             .end_symbol(None)
+            .render_stateful(buffer.area, &mut buffer, &mut state);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
+
+    #[rstest]
+    #[case::position_0("█████-----", 0, 10)]
+    #[case::position_1("-█████----", 1, 10)]
+    #[case::position_2("-█████----", 2, 10)]
+    #[case::position_3("--█████---", 3, 10)]
+    #[case::position_4("--█████---", 4, 10)]
+    #[case::position_5("---█████--", 5, 10)]
+    #[case::position_6("---█████--", 6, 10)]
+    #[case::position_7("----█████-", 7, 10)]
+    #[case::position_8("----█████-", 8, 10)]
+    #[case::position_9("-----█████", 9, 10)]
+    #[case::position_out_of_bounds("-----█████", 100, 10)]
+    fn render_scrollbar_without_track_symbols_over_content(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 1));
+        let width = buffer.area.width as usize;
+        let s = "";
+        Text::from(format!("{s:-^width$}")).render(buffer.area, &mut buffer);
+        let mut state = ScrollbarState::new(content_length).position(position);
+        Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+            .track_symbol(None)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .render_stateful(buffer.area, &mut buffer, &mut state);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
+
+    #[rstest]
+    #[case::position_0("<####---->", 0, 10)]
+    #[case::position_1("<#####--->", 1, 10)]
+    #[case::position_2("<-####--->", 2, 10)]
+    #[case::position_3("<-####--->", 3, 10)]
+    #[case::position_4("<--####-->", 4, 10)]
+    #[case::position_5("<--####-->", 5, 10)]
+    #[case::position_6("<---####->", 6, 10)]
+    #[case::position_7("<---####->", 7, 10)]
+    #[case::position_8("<---#####>", 8, 10)]
+    #[case::position_9("<----####>", 9, 10)]
+    #[case::position_one_out_of_bounds("<----####>", 10, 10)]
+    #[case::position_few_out_of_bounds("<----####>", 15, 10)]
+    #[case::position_very_many_out_of_bounds("<----####>", 500, 10)]
+    fn render_scrollbar_with_symbols(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 1));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        Scrollbar::new(ScrollbarOrientation::HorizontalTop)
+            .begin_symbol(Some("<"))
+            .end_symbol(Some(">"))
+            .track_symbol(Some("-"))
+            .thumb_symbol("#")
+            .render_stateful(buffer.area, &mut buffer, &mut state);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
+
+    #[rstest]
+    #[case::position_0("█████═════", 0, 10)]
+    #[case::position_1("═█████════", 1, 10)]
+    #[case::position_2("═█████════", 2, 10)]
+    #[case::position_3("══█████═══", 3, 10)]
+    #[case::position_4("══█████═══", 4, 10)]
+    #[case::position_5("═══█████══", 5, 10)]
+    #[case::position_6("═══█████══", 6, 10)]
+    #[case::position_7("════█████═", 7, 10)]
+    #[case::position_8("════█████═", 8, 10)]
+    #[case::position_9("═════█████", 9, 10)]
+    #[case::position_out_of_bounds("═════█████", 100, 10)]
+    fn render_scrollbar_horizontal_bottom(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 2));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .render_stateful(buffer.area, &mut buffer, &mut state);
+        let empty_string = " ".repeat(size as usize);
+        assert_eq!(buffer, Buffer::with_lines([&empty_string, expected]));
+    }
+
+    #[rstest]
+    #[case::position_0("█████═════", 0, 10)]
+    #[case::position_1("═█████════", 1, 10)]
+    #[case::position_2("═█████════", 2, 10)]
+    #[case::position_3("══█████═══", 3, 10)]
+    #[case::position_4("══█████═══", 4, 10)]
+    #[case::position_5("═══█████══", 5, 10)]
+    #[case::position_6("═══█████══", 6, 10)]
+    #[case::position_7("════█████═", 7, 10)]
+    #[case::position_8("════█████═", 8, 10)]
+    #[case::position_9("═════█████", 9, 10)]
+    #[case::position_out_of_bounds("═════█████", 100, 10)]
+    fn render_scrollbar_horizontal_top(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 2));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        Scrollbar::new(ScrollbarOrientation::HorizontalTop)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .render_stateful(buffer.area, &mut buffer, &mut state);
+        let empty_string = " ".repeat(size as usize);
+        assert_eq!(buffer, Buffer::with_lines([expected, &empty_string]));
+    }
+
+    #[rstest]
+    #[case::position_0("<####---->", 0, 10)]
+    #[case::position_1("<#####--->", 1, 10)]
+    #[case::position_2("<-####--->", 2, 10)]
+    #[case::position_3("<-####--->", 3, 10)]
+    #[case::position_4("<--####-->", 4, 10)]
+    #[case::position_5("<--####-->", 5, 10)]
+    #[case::position_6("<---####->", 6, 10)]
+    #[case::position_7("<---####->", 7, 10)]
+    #[case::position_8("<---#####>", 8, 10)]
+    #[case::position_9("<----####>", 9, 10)]
+    #[case::position_one_out_of_bounds("<----####>", 10, 10)]
+    fn render_scrollbar_vertical_left(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 5, size));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        Scrollbar::new(ScrollbarOrientation::VerticalLeft)
+            .begin_symbol(Some("<"))
+            .end_symbol(Some(">"))
+            .track_symbol(Some("-"))
+            .thumb_symbol("#")
+            .render_stateful(buffer.area, &mut buffer, &mut state);
+        let bar = expected.chars().map(|c| format!("{c}    "));
+        assert_eq!(buffer, Buffer::with_lines(bar));
+    }
+
+    #[rstest]
+    #[case::position_0("<####---->", 0, 10)]
+    #[case::position_1("<#####--->", 1, 10)]
+    #[case::position_2("<-####--->", 2, 10)]
+    #[case::position_3("<-####--->", 3, 10)]
+    #[case::position_4("<--####-->", 4, 10)]
+    #[case::position_5("<--####-->", 5, 10)]
+    #[case::position_6("<---####->", 6, 10)]
+    #[case::position_7("<---####->", 7, 10)]
+    #[case::position_8("<---#####>", 8, 10)]
+    #[case::position_9("<----####>", 9, 10)]
+    #[case::position_one_out_of_bounds("<----####>", 10, 10)]
+    fn render_scrollbar_vertical_rightl(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 5, size));
+        let mut state = ScrollbarState::new(content_length).position(position);
+        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("<"))
+            .end_symbol(Some(">"))
+            .track_symbol(Some("-"))
+            .thumb_symbol("#")
+            .render_stateful(buffer.area, &mut buffer, &mut state);
+        let bar = expected.chars().map(|c| format!("    {c}"));
+        assert_eq!(buffer, Buffer::with_lines(bar));
+    }
+
+    #[rstest]
+    #[case::position_0("##--------", 0, 10)]
+    #[case::position_1("-##-------", 1, 10)]
+    #[case::position_2("--##------", 2, 10)]
+    #[case::position_3("---##-----", 3, 10)]
+    #[case::position_4("----#-----", 4, 10)]
+    #[case::position_5("-----#----", 5, 10)]
+    #[case::position_6("-----##---", 6, 10)]
+    #[case::position_7("------##--", 7, 10)]
+    #[case::position_8("-------##-", 8, 10)]
+    #[case::position_9("--------##", 9, 10)]
+    #[case::position_one_out_of_bounds("--------##", 10, 10)]
+    fn custom_viewport_length(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        scrollbar_no_arrows: Scrollbar,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 1));
+        let mut state = ScrollbarState::new(content_length)
+            .position(position)
+            .viewport_content_length(2);
+        scrollbar_no_arrows.render_stateful(buffer.area, &mut buffer, &mut state);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
+
+    /// Fixes <https://github.com/ratatui-org/ratatui/pull/959> which was a bug that would not
+    /// render a thumb when the viewport was very small in comparison to the content length.
+    #[rstest]
+    #[case::position_0("#----", 0, 100)]
+    #[case::position_10("#----", 10, 100)]
+    #[case::position_20("-#---", 20, 100)]
+    #[case::position_30("-#---", 30, 100)]
+    #[case::position_40("--#--", 40, 100)]
+    #[case::position_50("--#--", 50, 100)]
+    #[case::position_60("---#-", 60, 100)]
+    #[case::position_70("---#-", 70, 100)]
+    #[case::position_80("----#", 80, 100)]
+    #[case::position_90("----#", 90, 100)]
+    #[case::position_one_out_of_bounds("----#", 100, 100)]
+    fn thumb_visible_on_very_small_track(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        scrollbar_no_arrows: Scrollbar,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 1));
+        let mut state = ScrollbarState::new(content_length)
+            .position(position)
+            .viewport_content_length(2);
+        scrollbar_no_arrows.render_stateful(buffer.area, &mut buffer, &mut state);
+        assert_eq!(buffer, Buffer::with_lines([expected]));
+    }
+
+    #[rstest]
+    #[case("██", 0, 2, "position_0")]
+    #[case("██", 1, 2, "position_1")]
+    fn render_scrollbar_simplest(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        #[case] assertion_message: &str,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 1));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
             .orientation(ScrollbarOrientation::HorizontalBottom)
+            .begin_symbol(None)
+            .end_symbol(None)
             .render(buffer.area, &mut buffer, &mut state);
-        let expected = vec!["    ", "══█═"];
-        assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
+        assert_eq!(
+            buffer,
+            Buffer::with_lines(vec![expected]),
+            "{}",
+            assertion_message
+        );
     }
 
-    #[test]
-    fn test_renders_two_thumb_default_symbols_for_content_double_height() {
-        for i in 0..=7 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 2, 4));
-            let mut state = ScrollbarState::default().position(i).content_length(8);
-            Scrollbar::default()
-                .begin_symbol(None)
-                .end_symbol(None)
-                .render(buffer.area, &mut buffer, &mut state);
-            let expected = if i <= 1 {
-                vec![" █", " █", " ║", " ║"]
-            } else if i <= 5 {
-                vec![" ║", " █", " █", " ║"]
-            } else {
-                vec![" ║", " ║", " █", " █"]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
+    #[rstest]
+    #[case("##########", 0, 10, "position_0")]
+    #[case("##########", 1, 10, "position_1")]
+    #[case("##########", 2, 10, "position_2")]
+    #[case("##########", 3, 10, "position_3")]
+    #[case("##########", 4, 10, "position_4")]
+    #[case("##########", 5, 10, "position_5")]
+    #[case("##########", 6, 10, "position_6")]
+    #[case("##########", 7, 10, "position_7")]
+    #[case("##########", 8, 10, "position_8")]
+    #[case("##########", 9, 10, "position_9")]
+    fn render_scrollbar_simple(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        #[case] assertion_message: &str,
+    ) {
+        let size = expected.width();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size as u16, 1));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::HorizontalTop)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("-"))
+            .thumb_symbol("#")
+            .render(buffer.area, &mut buffer, &mut state);
+        assert_eq!(
+            buffer,
+            Buffer::with_lines(vec![expected]),
+            "{}",
+            assertion_message,
+        );
     }
 
-    #[test]
-    fn test_renders_two_thumb_custom_symbols_for_content_double_height() {
-        for i in 0..=7 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 2, 4));
-            let mut state = ScrollbarState::default().position(i).content_length(8);
-            Scrollbar::default()
-                .symbols(VERTICAL)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .render(buffer.area, &mut buffer, &mut state);
-            let expected = if i <= 1 {
-                vec![" █", " █", " │", " │"]
-            } else if i <= 5 {
-                vec![" │", " █", " █", " │"]
-            } else {
-                vec![" │", " │", " █", " █"]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
+    #[rstest]
+    #[case("          ", 0, 0, "position_0")]
+    fn render_scrollbar_nobar(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        #[case] assertion_message: &str,
+    ) {
+        let size = expected.width();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size as u16, 1));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::HorizontalTop)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("-"))
+            .thumb_symbol("#")
+            .render(buffer.area, &mut buffer, &mut state);
+        assert_eq!(
+            buffer,
+            Buffer::with_lines(vec![expected]),
+            "{}",
+            assertion_message,
+        );
     }
 
-    #[test]
-    fn test_renders_two_thumb_default_symbols_for_content_double_width() {
-        for i in 0..=7 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 2));
-            let mut state = ScrollbarState::default().position(i).content_length(8);
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::HorizontalBottom)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .render(buffer.area, &mut buffer, &mut state);
-            let expected = if i <= 1 {
-                vec!["    ", "██══"]
-            } else if i <= 5 {
-                vec!["    ", "═██═"]
-            } else {
-                vec!["    ", "══██"]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
+    #[rstest]
+    #[case("##########", 0, 1, "position_0")]
+    fn render_scrollbar_fullbar(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        #[case] assertion_message: &str,
+    ) {
+        let size = expected.width();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size as u16, 1));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::HorizontalTop)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("-"))
+            .thumb_symbol("#")
+            .render(buffer.area, &mut buffer, &mut state);
+        assert_eq!(
+            buffer,
+            Buffer::with_lines(vec![expected]),
+            "{}",
+            assertion_message,
+        );
     }
 
-    #[test]
-    fn test_renders_two_thumb_custom_symbols_for_content_double_width() {
-        for i in 0..=7 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 2));
-            let mut state = ScrollbarState::default().position(i).content_length(8);
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::HorizontalBottom)
-                .symbols(HORIZONTAL)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .render(buffer.area, &mut buffer, &mut state);
-            let expected = if i <= 1 {
-                vec!["    ", "██──"]
-            } else if i <= 5 {
-                vec!["    ", "─██─"]
-            } else {
-                vec!["    ", "──██"]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
+    #[rstest]
+    #[case("##########", 0, 2, "position_0")]
+    #[case("##########", 1, 2, "position_1")]
+    fn render_scrollbar_almost_fullbar(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        #[case] assertion_message: &str,
+    ) {
+        let size = expected.width();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size as u16, 1));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::HorizontalTop)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("-"))
+            .thumb_symbol("#")
+            .render(buffer.area, &mut buffer, &mut state);
+        assert_eq!(
+            buffer,
+            Buffer::with_lines(vec![expected]),
+            "{}",
+            assertion_message,
+        );
     }
 
-    #[test]
-    fn test_rendering_viewport_content_length() {
-        for i in 0..=16 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 8, 2));
-            let mut state = ScrollbarState::default()
-                .position(i)
-                .content_length(16)
-                .viewport_content_length(4);
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::HorizontalBottom)
-                .begin_symbol(Some(DOUBLE_HORIZONTAL.begin))
-                .end_symbol(Some(DOUBLE_HORIZONTAL.end))
-                .render(buffer.area, &mut buffer, &mut state);
-            let expected = if i <= 1 {
-                vec!["        ", "◄██════►"]
-            } else if i <= 5 {
-                vec!["        ", "◄═██═══►"]
-            } else if i <= 9 {
-                vec!["        ", "◄══██══►"]
-            } else if i <= 13 {
-                vec!["        ", "◄═══██═►"]
-            } else {
-                vec!["        ", "◄════██►"]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
-
-        for i in 0..=16 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 8, 2));
-            let mut state = ScrollbarState::default()
-                .position(i)
-                .content_length(16)
-                .viewport_content_length(1);
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::HorizontalBottom)
-                .begin_symbol(Some(DOUBLE_HORIZONTAL.begin))
-                .end_symbol(Some(DOUBLE_HORIZONTAL.end))
-                .render(buffer.area, &mut buffer, &mut state);
-            dbg!(i);
-            let expected = if i <= 1 {
-                vec!["        ", "◄█═════►"]
-            } else if i <= 4 {
-                vec!["        ", "◄═█════►"]
-            } else if i <= 7 {
-                vec!["        ", "◄══█═══►"]
-            } else if i <= 11 {
-                vec!["        ", "◄═══█══►"]
-            } else if i <= 14 {
-                vec!["        ", "◄════█═►"]
-            } else {
-                vec!["        ", "◄═════█►"]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
+    #[rstest]
+    #[case("██████████", 0, 10, "position_0")]
+    #[case("██████████", 1, 10, "position_1")]
+    #[case("██████████", 2, 10, "position_2")]
+    #[case("██████████", 3, 10, "position_3")]
+    #[case("██████████", 4, 10, "position_4")]
+    #[case("██████████", 5, 10, "position_5")]
+    #[case("██████████", 6, 10, "position_6")]
+    #[case("██████████", 7, 10, "position_7")]
+    #[case("██████████", 8, 10, "position_8")]
+    #[case("██████████", 9, 10, "position_9")]
+    #[case("██████████", 100, 10, "position_out_of_bounds")]
+    fn render_scrollbar_without_symbols(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        #[case] assertion_message: &str,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 1));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::HorizontalBottom)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .render(buffer.area, &mut buffer, &mut state);
+        assert_eq!(
+            buffer,
+            Buffer::with_lines(vec![expected]),
+            "{}",
+            assertion_message
+        );
     }
 
-    #[test]
-    fn test_rendering_begin_end_arrows_horizontal_bottom() {
-        for i in 0..=16 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 8, 2));
-            let mut state = ScrollbarState::default().position(i).content_length(16);
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::HorizontalBottom)
-                .begin_symbol(Some(DOUBLE_HORIZONTAL.begin))
-                .end_symbol(Some(DOUBLE_HORIZONTAL.end))
-                .render(buffer.area, &mut buffer, &mut state);
-            let expected = if i <= 1 {
-                vec!["        ", "◄██════►"]
-            } else if i <= 5 {
-                vec!["        ", "◄═██═══►"]
-            } else if i <= 9 {
-                vec!["        ", "◄══██══►"]
-            } else if i <= 13 {
-                vec!["        ", "◄═══██═►"]
-            } else {
-                vec!["        ", "◄════██►"]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
+    #[rstest]
+    #[case("<######-->", 0, 10, "position_0")]
+    #[case("<######-->", 1, 10, "position_1")]
+    #[case("<######-->", 2, 10, "position_2")]
+    #[case("<-######->", 3, 10, "position_3")]
+    #[case("<-######->", 4, 10, "position_4")]
+    #[case("<-######->", 5, 10, "position_5")]
+    #[case("<-######->", 6, 10, "position_6")]
+    #[case("<-######->", 7, 10, "position_7")]
+    #[case("<--######>", 8, 10, "position_8")]
+    #[case("<--######>", 9, 10, "position_9")]
+    #[case("<--######>", 10, 10, "position_one_out_of_bounds")]
+    #[case("<--######>", 15, 10, "position_few_out_of_bounds")]
+    #[case("<--######>", 500, 10, "position_very_many_out_of_bounds")]
+    fn render_scrollbar_with_symbols(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        #[case] assertion_message: &str,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 1));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::HorizontalTop)
+            .begin_symbol(Some("<"))
+            .end_symbol(Some(">"))
+            .track_symbol(Some("-"))
+            .thumb_symbol("#")
+            .render(buffer.area, &mut buffer, &mut state);
+        assert_eq!(
+            buffer,
+            Buffer::with_lines(vec![expected]),
+            "{}",
+            assertion_message,
+        );
     }
 
-    #[test]
-    fn test_rendering_begin_end_arrows_horizontal_top() {
-        for i in 0..=16 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 8, 2));
-            let mut state = ScrollbarState::default().position(i).content_length(16);
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::HorizontalTop)
-                .begin_symbol(Some(DOUBLE_HORIZONTAL.begin))
-                .end_symbol(Some(DOUBLE_HORIZONTAL.end))
-                .render(buffer.area, &mut buffer, &mut state);
-            let expected = if i <= 1 {
-                vec!["◄██════►", "        "]
-            } else if i <= 5 {
-                vec!["◄═██═══►", "        "]
-            } else if i <= 9 {
-                vec!["◄══██══►", "        "]
-            } else if i <= 13 {
-                vec!["◄═══██═►", "        "]
-            } else {
-                vec!["◄════██►", "        "]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
+    #[rstest]
+    #[case("██████████", 0, 10, "position_0")]
+    #[case("██████████", 1, 10, "position_1")]
+    #[case("██████████", 2, 10, "position_2")]
+    #[case("██████████", 3, 10, "position_3")]
+    #[case("██████████", 4, 10, "position_4")]
+    #[case("██████████", 5, 10, "position_5")]
+    #[case("██████████", 6, 10, "position_6")]
+    #[case("██████████", 7, 10, "position_7")]
+    #[case("██████████", 8, 10, "position_8")]
+    #[case("██████████", 9, 10, "position_9")]
+    #[case("██████████", 100, 10, "position_out_of_bounds")]
+    fn render_scrollbar_twoline_horizontal(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        #[case] assertion_message: &str,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 2));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::HorizontalBottom)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .render(buffer.area, &mut buffer, &mut state);
+        let empty_string: String = " ".repeat(size as usize);
+        assert_eq!(
+            buffer,
+            Buffer::with_lines(vec![&empty_string, expected]),
+            "{}",
+            assertion_message
+        );
+
+        let mut buffer = Buffer::empty(Rect::new(0, 0, size, 2));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::HorizontalTop)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .render(buffer.area, &mut buffer, &mut state);
+        let empty_string: String = " ".repeat(size as usize);
+        assert_eq!(
+            buffer,
+            Buffer::with_lines(vec![expected, &empty_string]),
+            "{}",
+            assertion_message
+        );
     }
 
-    #[test]
-    fn test_rendering_only_begin_arrow_horizontal_bottom() {
-        for i in 0..=16 {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 8, 2));
-            let mut state = ScrollbarState::default().position(i).content_length(16);
-            Scrollbar::default()
-                .orientation(ScrollbarOrientation::HorizontalBottom)
-                .begin_symbol(Some(DOUBLE_HORIZONTAL.begin))
-                .end_symbol(None)
-                .render(buffer.area, &mut buffer, &mut state);
-            let expected = if i <= 1 {
-                vec!["        ", "◄███════"]
-            } else if i <= 5 {
-                vec!["        ", "◄═███═══"]
-            } else if i <= 9 {
-                vec!["        ", "◄══███══"]
-            } else if i <= 13 {
-                vec!["        ", "◄═══███═"]
-            } else {
-                vec!["        ", "◄════███"]
-            };
-            assert_buffer_eq!(buffer, Buffer::with_lines(expected.clone()));
-        }
+    #[rstest]
+    #[case("<######-->", 0, 10, "position_0")]
+    #[case("<######-->", 1, 10, "position_1")]
+    #[case("<######-->", 2, 10, "position_2")]
+    #[case("<-######->", 3, 10, "position_3")]
+    #[case("<-######->", 4, 10, "position_4")]
+    #[case("<-######->", 5, 10, "position_5")]
+    #[case("<-######->", 6, 10, "position_6")]
+    #[case("<-######->", 7, 10, "position_7")]
+    #[case("<--######>", 8, 10, "position_8")]
+    #[case("<--######>", 9, 10, "position_9")]
+    #[case("<--######>", 10, 10, "position_one_out_of_bounds")]
+    fn render_scrollbar_twoline_vertical(
+        #[case] expected: &str,
+        #[case] position: usize,
+        #[case] content_length: usize,
+        #[case] assertion_message: &str,
+    ) {
+        let size = expected.width() as u16;
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 2, size));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("<"))
+            .end_symbol(Some(">"))
+            .track_symbol(Some("-"))
+            .thumb_symbol("#")
+            .render(buffer.area, &mut buffer, &mut state);
+        let empty_string: String = " ".repeat(size as usize);
+        let bar = empty_string
+            .chars()
+            .zip(expected.chars())
+            .map(|(a, b)| format!("{a}{b}"))
+            .collect_vec();
+        assert_eq!(buffer, Buffer::with_lines(bar), "{}", assertion_message);
+
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 2, size));
+        let mut state = ScrollbarState::default()
+            .position(position)
+            .content_length(content_length);
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalLeft)
+            .begin_symbol(Some("<"))
+            .end_symbol(Some(">"))
+            .track_symbol(Some("-"))
+            .thumb_symbol("#")
+            .render(buffer.area, &mut buffer, &mut state);
+        let empty_string: String = " ".repeat(size as usize);
+        let bar = expected
+            .chars()
+            .zip(empty_string.chars())
+            .map(|(a, b)| format!("{a}{b}"))
+            .collect_vec();
+        assert_eq!(buffer, Buffer::with_lines(bar), "{}", assertion_message);
     }
 }
