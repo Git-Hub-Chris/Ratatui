@@ -27,16 +27,15 @@
 //
 // See also https://github.com/rhysd/tui-textarea and https://github.com/sayanarijit/tui-input/
 
-use std::{error::Error, io};
-
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use color_eyre::Result;
 use ratatui::{
-    prelude::*,
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    layout::{Constraint, Layout},
+    style::{Color, Modifier, Style, Stylize},
+    terminal::Frame,
+    text::{Line, Span, Text},
+    widgets::{Block, List, ListItem, Paragraph},
 };
 
 enum InputMode {
@@ -49,7 +48,7 @@ struct App {
     /// Current value of the input box
     input: String,
     /// Position of cursor in the editor area.
-    cursor_position: usize,
+    character_index: usize,
     /// Current input mode
     input_mode: InputMode,
     /// History of recorded messages
@@ -62,34 +61,46 @@ impl App {
             input: String::new(),
             input_mode: InputMode::Normal,
             messages: Vec::new(),
-            cursor_position: 0,
+            character_index: 0,
         }
     }
 
     fn move_cursor_left(&mut self) {
-        let cursor_moved_left = self.cursor_position.saturating_sub(1);
-        self.cursor_position = self.clamp_cursor(cursor_moved_left);
+        let cursor_moved_left = self.character_index.saturating_sub(1);
+        self.character_index = self.clamp_cursor(cursor_moved_left);
     }
 
     fn move_cursor_right(&mut self) {
-        let cursor_moved_right = self.cursor_position.saturating_add(1);
-        self.cursor_position = self.clamp_cursor(cursor_moved_right);
+        let cursor_moved_right = self.character_index.saturating_add(1);
+        self.character_index = self.clamp_cursor(cursor_moved_right);
     }
 
     fn enter_char(&mut self, new_char: char) {
-        self.input.insert(self.cursor_position, new_char);
-
+        let index = self.byte_index();
+        self.input.insert(index, new_char);
         self.move_cursor_right();
     }
 
+    /// Returns the byte index based on the character position.
+    ///
+    /// Since each character in a string can be contain multiple bytes, it's necessary to calculate
+    /// the byte index based on the index of the character.
+    fn byte_index(&self) -> usize {
+        self.input
+            .char_indices()
+            .map(|(i, _)| i)
+            .nth(self.character_index)
+            .unwrap_or(self.input.len())
+    }
+
     fn delete_char(&mut self) {
-        let is_not_cursor_leftmost = self.cursor_position != 0;
+        let is_not_cursor_leftmost = self.character_index != 0;
         if is_not_cursor_leftmost {
             // Method "remove" is not used on the saved text for deleting the selected char.
             // Reason: Using remove on String works on bytes instead of the chars.
             // Using remove would require special care because of char boundaries.
 
-            let current_index = self.cursor_position;
+            let current_index = self.character_index;
             let from_left_to_current_index = current_index - 1;
 
             // Getting all characters before the selected character.
@@ -105,11 +116,11 @@ impl App {
     }
 
     fn clamp_cursor(&self, new_cursor_pos: usize) -> usize {
-        new_cursor_pos.clamp(0, self.input.len())
+        new_cursor_pos.clamp(0, self.input.chars().count())
     }
 
     fn reset_cursor(&mut self) {
-        self.cursor_position = 0;
+        self.character_index = 0;
     }
 
     fn submit_message(&mut self) {
@@ -119,35 +130,12 @@ impl App {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+fn main() -> Result<()> {
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?
+        .with_mouse_capture()?
+        .to_terminal()?;
 
-    // create app and run it
-    let app = App::new();
-    let res = run_app(&mut terminal, app);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{err:?}");
-    }
-
-    Ok(())
-}
-
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
+    let mut app = App::new();
     loop {
         terminal.draw(|f| ui(f, &app))?;
 
@@ -226,7 +214,7 @@ fn ui(f: &mut Frame, app: &App) {
             InputMode::Normal => Style::default(),
             InputMode::Editing => Style::default().fg(Color::Yellow),
         })
-        .block(Block::default().borders(Borders::ALL).title("Input"));
+        .block(Block::bordered().title("Input"));
     f.render_widget(input, input_area);
     match app.input_mode {
         InputMode::Normal =>
@@ -240,7 +228,7 @@ fn ui(f: &mut Frame, app: &App) {
             f.set_cursor(
                 // Draw the cursor at the current position in the input field.
                 // This position is can be controlled via the left and right arrow key
-                input_area.x + app.cursor_position as u16 + 1,
+                input_area.x + app.character_index as u16 + 1,
                 // Move one line down, from the border to the input line
                 input_area.y + 1,
             );
@@ -256,7 +244,6 @@ fn ui(f: &mut Frame, app: &App) {
             ListItem::new(content)
         })
         .collect();
-    let messages =
-        List::new(messages).block(Block::default().borders(Borders::ALL).title("Messages"));
+    let messages = List::new(messages).block(Block::bordered().title("Messages"));
     f.render_widget(messages, messages_area);
 }

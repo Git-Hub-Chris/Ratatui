@@ -7,20 +7,19 @@
 
 use std::{error::Error, io};
 
-use termwiz::{
-    caps::Capabilities,
-    cell::{AttributeChange, Blink, CellAttributes, Intensity, Underline},
-    color::{AnsiColor, ColorAttribute, ColorSpec, LinearRgba, RgbColor, SrgbaTuple},
-    surface::{Change, CursorVisibility, Position},
-    terminal::{buffered::BufferedTerminal, ScreenSize, SystemTerminal, Terminal},
-};
-
 use crate::{
     backend::{Backend, WindowSize},
     buffer::Cell,
     layout::Size,
     prelude::Rect,
     style::{Color, Modifier, Style},
+    termwiz::{
+        caps::Capabilities,
+        cell::{AttributeChange, Blink, CellAttributes, Intensity, Underline},
+        color::{AnsiColor, ColorAttribute, ColorSpec, LinearRgba, RgbColor, SrgbaTuple},
+        surface::{Change, CursorVisibility, Position},
+        terminal::{buffered::BufferedTerminal, ScreenSize, SystemTerminal, Terminal},
+    },
 };
 
 /// A [`Backend`] implementation that uses [Termwiz] to render to the terminal.
@@ -111,7 +110,7 @@ impl TermwizBackend {
 }
 
 impl Backend for TermwizBackend {
-    fn draw<'a, I>(&mut self, content: I) -> Result<(), io::Error>
+    fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
     where
         I: Iterator<Item = (u16, u16, &'a Cell)>,
     {
@@ -181,13 +180,13 @@ impl Backend for TermwizBackend {
         Ok(())
     }
 
-    fn hide_cursor(&mut self) -> Result<(), io::Error> {
+    fn hide_cursor(&mut self) -> io::Result<()> {
         self.buffered_terminal
             .add_change(Change::CursorVisibility(CursorVisibility::Hidden));
         Ok(())
     }
 
-    fn show_cursor(&mut self) -> Result<(), io::Error> {
+    fn show_cursor(&mut self) -> io::Result<()> {
         self.buffered_terminal
             .add_change(Change::CursorVisibility(CursorVisibility::Visible));
         Ok(())
@@ -207,18 +206,18 @@ impl Backend for TermwizBackend {
         Ok(())
     }
 
-    fn clear(&mut self) -> Result<(), io::Error> {
+    fn clear(&mut self) -> io::Result<()> {
         self.buffered_terminal
             .add_change(Change::ClearScreen(termwiz::color::ColorAttribute::Default));
         Ok(())
     }
 
-    fn size(&self) -> Result<Rect, io::Error> {
+    fn size(&self) -> io::Result<Rect> {
         let (cols, rows) = self.buffered_terminal.dimensions();
         Ok(Rect::new(0, 0, u16_max(cols), u16_max(rows)))
     }
 
-    fn window_size(&mut self) -> Result<WindowSize, io::Error> {
+    fn window_size(&mut self) -> io::Result<WindowSize> {
         let ScreenSize {
             cols,
             rows,
@@ -241,7 +240,7 @@ impl Backend for TermwizBackend {
         })
     }
 
-    fn flush(&mut self) -> Result<(), io::Error> {
+    fn flush(&mut self) -> io::Result<()> {
         self.buffered_terminal
             .flush()
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
@@ -271,7 +270,7 @@ impl From<CellAttributes> for Style {
 
         style.fg = Some(value.foreground().into());
         style.bg = Some(value.background().into());
-        #[cfg(feature = "underline_color")]
+        #[cfg(feature = "underline-color")]
         {
             style.underline_color = Some(value.underline_color().into());
         }
@@ -407,7 +406,6 @@ fn u16_max(i: usize) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::style::Stylize;
 
     mod into_color {
         use Color as C;
@@ -576,11 +574,19 @@ mod tests {
 
     #[test]
     fn from_cell_attribute_for_style() {
+        use crate::style::Stylize;
+
+        #[cfg(feature = "underline-color")]
+        const STYLE: Style = Style::new()
+            .underline_color(Color::Reset)
+            .fg(Color::Reset)
+            .bg(Color::Reset);
+        #[cfg(not(feature = "underline-color"))]
+        const STYLE: Style = Style::new().fg(Color::Reset).bg(Color::Reset);
+
         // default
-        assert_eq!(
-            Style::from(CellAttributes::default()),
-            Style::new().fg(Color::Reset).bg(Color::Reset)
-        );
+        assert_eq!(Style::from(CellAttributes::default()), STYLE);
+
         // foreground color
         assert_eq!(
             Style::from(
@@ -588,7 +594,7 @@ mod tests {
                     .set_foreground(ColorAttribute::PaletteIndex(31))
                     .to_owned()
             ),
-            Style::new().fg(Color::Indexed(31)).bg(Color::Reset)
+            STYLE.fg(Color::Indexed(31))
         );
         // background color
         assert_eq!(
@@ -597,21 +603,7 @@ mod tests {
                     .set_background(ColorAttribute::PaletteIndex(31))
                     .to_owned()
             ),
-            Style::new().fg(Color::Reset).bg(Color::Indexed(31))
-        );
-        // underline color
-        #[cfg(feature = "underline_color")]
-        assert_eq!(
-            Style::from(
-                CellAttributes::default()
-                    .set_underline_color(AnsiColor::Red)
-                    .set
-                    .to_owned()
-            ),
-            Style::new()
-                .fg(Color::Reset)
-                .bg(Color::Reset)
-                .underline_color(Color::Red)
+            STYLE.bg(Color::Indexed(31))
         );
         // underlined
         assert_eq!(
@@ -620,12 +612,12 @@ mod tests {
                     .set_underline(Underline::Single)
                     .to_owned()
             ),
-            Style::new().fg(Color::Reset).bg(Color::Reset).underlined()
+            STYLE.underlined()
         );
         // blink
         assert_eq!(
             Style::from(CellAttributes::default().set_blink(Blink::Slow).to_owned()),
-            Style::new().fg(Color::Reset).bg(Color::Reset).slow_blink()
+            STYLE.slow_blink()
         );
         // intensity
         assert_eq!(
@@ -634,27 +626,38 @@ mod tests {
                     .set_intensity(Intensity::Bold)
                     .to_owned()
             ),
-            Style::new().fg(Color::Reset).bg(Color::Reset).bold()
+            STYLE.bold()
         );
         // italic
         assert_eq!(
             Style::from(CellAttributes::default().set_italic(true).to_owned()),
-            Style::new().fg(Color::Reset).bg(Color::Reset).italic()
+            STYLE.italic()
         );
         // reversed
         assert_eq!(
             Style::from(CellAttributes::default().set_reverse(true).to_owned()),
-            Style::new().fg(Color::Reset).bg(Color::Reset).reversed()
+            STYLE.reversed()
         );
         // strikethrough
         assert_eq!(
             Style::from(CellAttributes::default().set_strikethrough(true).to_owned()),
-            Style::new().fg(Color::Reset).bg(Color::Reset).crossed_out()
+            STYLE.crossed_out()
         );
         // hidden
         assert_eq!(
             Style::from(CellAttributes::default().set_invisible(true).to_owned()),
-            Style::new().fg(Color::Reset).bg(Color::Reset).hidden()
+            STYLE.hidden()
+        );
+
+        // underline color
+        #[cfg(feature = "underline-color")]
+        assert_eq!(
+            Style::from(
+                CellAttributes::default()
+                    .set_underline_color(AnsiColor::Red)
+                    .to_owned()
+            ),
+            STYLE.underline_color(Color::Indexed(9))
         );
     }
 }

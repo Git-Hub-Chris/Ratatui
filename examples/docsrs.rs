@@ -13,14 +13,14 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use std::io::{self, stdout};
-
-use crossterm::{
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
-};
+use color_eyre::Result;
 use ratatui::{
-    prelude::*,
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode},
+    layout::{Constraint, Layout},
+    style::{Color, Modifier, Style, Stylize},
+    terminal::Frame,
+    text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph},
 };
 
@@ -28,12 +28,9 @@ use ratatui::{
 ///
 /// When cargo-rdme supports doc comments that import from code, this will be imported
 /// rather than copied to the lib.rs file.
-fn main() -> io::Result<()> {
+fn main() -> Result<()> {
     let arg = std::env::args().nth(1).unwrap_or_default();
-    enable_raw_mode()?;
-    stdout().execute(EnterAlternateScreen)?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
-
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
     let mut should_quit = false;
     while !should_quit {
         terminal.draw(match arg.as_str() {
@@ -43,22 +40,17 @@ fn main() -> io::Result<()> {
         })?;
         should_quit = handle_events()?;
     }
-
-    disable_raw_mode()?;
-    stdout().execute(LeaveAlternateScreen)?;
     Ok(())
 }
 
 fn hello_world(frame: &mut Frame) {
     frame.render_widget(
-        Paragraph::new("Hello World!")
-            .block(Block::default().title("Greeting").borders(Borders::ALL)),
+        Paragraph::new("Hello World!").block(Block::bordered().title("Greeting")),
         frame.size(),
     );
 }
 
-use crossterm::event::{self, Event, KeyCode};
-fn handle_events() -> io::Result<bool> {
+fn handle_events() -> Result<bool> {
     if event::poll(std::time::Duration::from_millis(50))? {
         if let Event::Key(key) = event::read()? {
             if key.kind == event::KeyEventKind::Press && key.code == KeyCode::Char('q') {
@@ -87,8 +79,8 @@ fn layout(frame: &mut Frame) {
         Block::new().borders(Borders::TOP).title("Status Bar"),
         status_bar,
     );
-    frame.render_widget(Block::default().borders(Borders::ALL).title("Left"), left);
-    frame.render_widget(Block::default().borders(Borders::ALL).title("Right"), right);
+    frame.render_widget(Block::bordered().title("Left"), left);
+    frame.render_widget(Block::bordered().title("Right"), right);
 }
 
 fn styling(frame: &mut Frame) {

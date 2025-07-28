@@ -13,20 +13,17 @@
 //! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
 //! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use std::{
-    error::Error,
-    io,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use color_eyre::Result;
 use ratatui::{
-    prelude::*,
-    widgets::{Bar, BarChart, BarGroup, Block, Borders, Paragraph},
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    terminal::Frame,
+    text::{Line, Span},
+    widgets::{Bar, BarChart, BarGroup, Block, Paragraph},
 };
 
 struct Company<'a> {
@@ -99,40 +96,13 @@ impl<'a> App<'a> {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    // setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+fn main() -> Result<()> {
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?
+        .with_mouse_capture()?
+        .to_terminal()?;
 
-    // create app and run it
     let tick_rate = Duration::from_millis(250);
-    let app = App::new();
-    let res = run_app(&mut terminal, app, tick_rate);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    if let Err(err) = res {
-        println!("{err:?}");
-    }
-
-    Ok(())
-}
-
-fn run_app<B: Backend>(
-    terminal: &mut Terminal<B>,
-    mut app: App,
-    tick_rate: Duration,
-) -> io::Result<()> {
+    let mut app = App::new();
     let mut last_tick = Instant::now();
     loop {
         terminal.draw(|f| ui(f, &app))?;
@@ -159,7 +129,7 @@ fn ui(frame: &mut Frame, app: &App) {
     let [left, right] = horizontal.areas(bottom);
 
     let barchart = BarChart::default()
-        .block(Block::default().title("Data1").borders(Borders::ALL))
+        .block(Block::bordered().title("Data1"))
         .data(&app.data)
         .bar_width(9)
         .bar_style(Style::default().fg(Color::Yellow))
@@ -217,7 +187,7 @@ fn draw_bar_with_group_labels(f: &mut Frame, app: &App, area: Rect) {
     let groups = create_groups(app, false);
 
     let mut barchart = BarChart::default()
-        .block(Block::default().title("Data1").borders(Borders::ALL))
+        .block(Block::bordered().title("Data1"))
         .bar_width(7)
         .group_gap(3);
 
@@ -246,7 +216,7 @@ fn draw_horizontal_bars(f: &mut Frame, app: &App, area: Rect) {
     let groups = create_groups(app, true);
 
     let mut barchart = BarChart::default()
-        .block(Block::default().title("Data1").borders(Borders::ALL))
+        .block(Block::bordered().title("Data1"))
         .bar_width(1)
         .group_gap(1)
         .bar_gap(0)
@@ -286,15 +256,13 @@ fn draw_legend(f: &mut Frame, area: Rect) {
             "- Company B",
             Style::default().fg(Color::Yellow),
         )),
-        Line::from(vec![Span::styled(
+        Line::from(Span::styled(
             "- Company C",
             Style::default().fg(Color::White),
-        )]),
+        )),
     ];
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .style(Style::default().fg(Color::White));
+    let block = Block::bordered().style(Style::default().fg(Color::White));
     let paragraph = Paragraph::new(text).block(block);
     f.render_widget(paragraph, area);
 }
