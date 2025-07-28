@@ -1,5 +1,5 @@
-use super::*;
-use crate::prelude::*;
+use super::Cell;
+use crate::{prelude::*, style::Styled};
 
 /// A single row of data to be displayed in a [`Table`] widget.
 ///
@@ -43,6 +43,14 @@ use crate::prelude::*;
 ///     Cow::Borrowed("hello"),
 ///     Cow::Owned("world".to_uppercase()),
 /// ]);
+/// ```
+///
+/// An iterator whose item type is convertible into [`Text`] can be collected into a row.
+///
+/// ```rust
+/// use ratatui::widgets::Row;
+///
+/// (0..10).map(|i| format!("{i}")).collect::<Row>();
 /// ```
 ///
 /// `Row` implements [`Styled`] which means you can use style shorthands from the [`Stylize`] trait
@@ -137,7 +145,7 @@ impl<'a> Row<'a> {
     /// let row = Row::new(cells).height(2);
     /// ```
     #[must_use = "method moves the value of self and returns the modified value"]
-    pub fn height(mut self, height: u16) -> Self {
+    pub const fn height(mut self, height: u16) -> Self {
         self.height = height;
         self
     }
@@ -156,7 +164,7 @@ impl<'a> Row<'a> {
     /// let row = Row::default().top_margin(1);
     /// ```
     #[must_use = "method moves the value of self and returns the modified value"]
-    pub fn top_margin(mut self, margin: u16) -> Self {
+    pub const fn top_margin(mut self, margin: u16) -> Self {
         self.top_margin = margin;
         self
     }
@@ -175,7 +183,7 @@ impl<'a> Row<'a> {
     /// let row = Row::default().bottom_margin(1);
     /// ```
     #[must_use = "method moves the value of self and returns the modified value"]
-    pub fn bottom_margin(mut self, margin: u16) -> Self {
+    pub const fn bottom_margin(mut self, margin: u16) -> Self {
         self.bottom_margin = margin;
         self
     }
@@ -216,7 +224,7 @@ impl<'a> Row<'a> {
 // private methods for rendering
 impl Row<'_> {
     /// Returns the total height of the row.
-    pub(crate) fn height_with_margin(&self) -> u16 {
+    pub(crate) const fn height_with_margin(&self) -> u16 {
         self.height
             .saturating_add(self.top_margin)
             .saturating_add(self.bottom_margin)
@@ -224,7 +232,7 @@ impl Row<'_> {
 }
 
 impl<'a> Styled for Row<'a> {
-    type Item = Row<'a>;
+    type Item = Self;
 
     fn style(&self) -> Style {
         self.style
@@ -235,17 +243,32 @@ impl<'a> Styled for Row<'a> {
     }
 }
 
+impl<'a, Item> FromIterator<Item> for Row<'a>
+where
+    Item: Into<Cell<'a>>,
+{
+    fn from_iter<IterCells: IntoIterator<Item = Item>>(cells: IterCells) -> Self {
+        Self::new(cells)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::vec;
 
     use super::*;
-    use crate::style::{Color, Modifier, Style, Stylize};
 
     #[test]
     fn new() {
         let cells = vec![Cell::from("")];
         let row = Row::new(cells.clone());
+        assert_eq!(row.cells, cells);
+    }
+
+    #[test]
+    fn collect() {
+        let cells = vec![Cell::from("")];
+        let row: Row = cells.iter().cloned().collect();
         assert_eq!(row.cells, cells);
     }
 
@@ -295,6 +318,6 @@ mod tests {
                 .bg(Color::White)
                 .add_modifier(Modifier::BOLD)
                 .remove_modifier(Modifier::ITALIC)
-        )
+        );
     }
 }

@@ -1,73 +1,43 @@
-use std::{
-    error::Error,
-    io::{stdout, Stdout},
-    ops::ControlFlow,
-    time::Duration,
-};
+//! # [Ratatui] Block example
+//!
+//! The latest version of this example is available in the [examples] folder in the repository.
+//!
+//! Please note that the examples are designed to be run against the `main` branch of the Github
+//! repository. This means that you may not be able to compile with the latest release version on
+//! crates.io, or the one that you have installed locally.
+//!
+//! See the [examples readme] for more information on finding examples that match the version of the
+//! library you are using.
+//!
+//! [Ratatui]: https://github.com/ratatui-org/ratatui
+//! [examples]: https://github.com/ratatui-org/ratatui/blob/main/examples
+//! [examples readme]: https://github.com/ratatui-org/ratatui/blob/main/examples/README.md
 
-use crossterm::{
-    event::{self, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use color_eyre::Result;
 use itertools::Itertools;
 use ratatui::{
-    prelude::*,
+    backend::{Backend, CrosstermBackend},
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    layout::{Alignment, Constraint, Layout, Rect},
+    style::{Style, Stylize},
+    terminal::Frame,
+    text::Line,
     widgets::{
         block::{Position, Title},
         Block, BorderType, Borders, Padding, Paragraph, Wrap,
     },
 };
 
-// These type aliases are used to make the code more readable by reducing repetition of the generic
-// types. They are not necessary for the functionality of the code.
-type Terminal = ratatui::Terminal<CrosstermBackend<Stdout>>;
-type Result<T> = std::result::Result<T, Box<dyn Error>>;
-
 fn main() -> Result<()> {
-    let mut terminal = setup_terminal()?;
-    let result = run(&mut terminal);
-    restore_terminal(terminal)?;
-
-    if let Err(err) = result {
-        eprintln!("{err:?}");
-    }
-    Ok(())
-}
-
-fn setup_terminal() -> Result<Terminal> {
-    enable_raw_mode()?;
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let terminal = Terminal::new(backend)?;
-    Ok(terminal)
-}
-
-fn restore_terminal(mut terminal: Terminal) -> Result<()> {
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    Ok(())
-}
-
-fn run(terminal: &mut Terminal) -> Result<()> {
+    let mut terminal = CrosstermBackend::stdout_with_defaults()?.to_terminal()?;
     loop {
         terminal.draw(ui)?;
-        if handle_events()?.is_break() {
-            return Ok(());
-        }
-    }
-}
-
-fn handle_events() -> Result<ControlFlow<()>> {
-    if event::poll(Duration::from_millis(100))? {
-        if let Event::Key(key) = event::read()? {
-            if let KeyCode::Char('q') = key.code {
-                return Ok(ControlFlow::Break(()));
+        if let Event::Key(event) = event::read()? {
+            if event.kind == KeyEventKind::Press && event.code == KeyCode::Char('q') {
+                return Ok(());
             }
         }
     }
-    Ok(ControlFlow::Continue(()))
 }
 
 fn ui(frame: &mut Frame) {
@@ -103,20 +73,14 @@ fn ui(frame: &mut Frame) {
 ///
 /// Returns a tuple of the title area and the main areas.
 fn calculate_layout(area: Rect) -> (Rect, Vec<Vec<Rect>>) {
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
-        .split(area);
-    let title_area = layout[0];
-    let main_areas = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Max(4); 9])
-        .split(layout[1])
+    let main_layout = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]);
+    let block_layout = Layout::vertical([Constraint::Max(4); 9]);
+    let [title_area, main_area] = main_layout.areas(area);
+    let main_areas = block_layout
+        .split(main_area)
         .iter()
         .map(|&area| {
-            Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(area)
                 .to_vec()
         })
@@ -141,7 +105,7 @@ fn placeholder_paragraph() -> Paragraph<'static> {
 fn render_borders(paragraph: &Paragraph, border: Borders, frame: &mut Frame, area: Rect) {
     let block = Block::new()
         .borders(border)
-        .title(format!("Borders::{border:#?}", border = border));
+        .title(format!("Borders::{border:#?}"));
     frame.render_widget(paragraph.clone().block(block), area);
 }
 
@@ -151,23 +115,20 @@ fn render_border_type(
     frame: &mut Frame,
     area: Rect,
 ) {
-    let block = Block::new()
-        .borders(Borders::ALL)
+    let block = Block::bordered()
         .border_type(border_type)
         .title(format!("BorderType::{border_type:#?}"));
     frame.render_widget(paragraph.clone().block(block), area);
 }
 fn render_styled_borders(paragraph: &Paragraph, frame: &mut Frame, area: Rect) {
-    let block = Block::new()
-        .borders(Borders::ALL)
+    let block = Block::bordered()
         .border_style(Style::new().blue().on_white().bold().italic())
         .title("Styled borders");
     frame.render_widget(paragraph.clone().block(block), area);
 }
 
 fn render_styled_block(paragraph: &Paragraph, frame: &mut Frame, area: Rect) {
-    let block = Block::new()
-        .borders(Borders::ALL)
+    let block = Block::bordered()
         .style(Style::new().blue().on_white().bold().italic())
         .title("Styled block");
     frame.render_widget(paragraph.clone().block(block), area);
@@ -175,8 +136,7 @@ fn render_styled_block(paragraph: &Paragraph, frame: &mut Frame, area: Rect) {
 
 // Note: this currently renders incorrectly, see https://github.com/ratatui-org/ratatui/issues/349
 fn render_styled_title(paragraph: &Paragraph, frame: &mut Frame, area: Rect) {
-    let block = Block::new()
-        .borders(Borders::ALL)
+    let block = Block::bordered()
         .title("Styled title")
         .title_style(Style::new().blue().on_white().bold().italic());
     frame.render_widget(paragraph.clone().block(block), area);
@@ -187,21 +147,19 @@ fn render_styled_title_content(paragraph: &Paragraph, frame: &mut Frame, area: R
         "Styled ".blue().on_white().bold().italic(),
         "title content".red().on_white().bold().italic(),
     ]);
-    let block = Block::new().borders(Borders::ALL).title(title);
+    let block = Block::bordered().title(title);
     frame.render_widget(paragraph.clone().block(block), area);
 }
 
 fn render_multiple_titles(paragraph: &Paragraph, frame: &mut Frame, area: Rect) {
-    let block = Block::new()
-        .borders(Borders::ALL)
+    let block = Block::bordered()
         .title("Multiple".blue().on_white().bold().italic())
         .title("Titles".red().on_white().bold().italic());
     frame.render_widget(paragraph.clone().block(block), area);
 }
 
 fn render_multiple_title_positions(paragraph: &Paragraph, frame: &mut Frame, area: Rect) {
-    let block = Block::new()
-        .borders(Borders::ALL)
+    let block = Block::bordered()
         .title(
             Title::from("top left")
                 .position(Position::Top)
@@ -236,16 +194,15 @@ fn render_multiple_title_positions(paragraph: &Paragraph, frame: &mut Frame, are
 }
 
 fn render_padding(paragraph: &Paragraph, frame: &mut Frame, area: Rect) {
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .title("Padding")
-        .padding(Padding::new(5, 10, 1, 2));
+    let block = Block::bordered()
+        .padding(Padding::new(5, 10, 1, 2))
+        .title("Padding");
     frame.render_widget(paragraph.clone().block(block), area);
 }
 
 fn render_nested_blocks(paragraph: &Paragraph, frame: &mut Frame, area: Rect) {
-    let outer_block = Block::new().borders(Borders::ALL).title("Outer block");
-    let inner_block = Block::new().borders(Borders::ALL).title("Inner block");
+    let outer_block = Block::bordered().title("Outer block");
+    let inner_block = Block::bordered().title("Inner block");
     let inner = outer_block.inner(area);
     frame.render_widget(outer_block, area);
     frame.render_widget(paragraph.clone().block(inner_block), inner);
