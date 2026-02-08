@@ -4,13 +4,7 @@ This document outlines the security policy for Ratatui, including supported vers
 
 ## Supported Versions
 
-We release patches for security vulnerabilities for the following versions:
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.26.x  | :white_check_mark: |
-| 0.25.x  | :white_check_mark: |
-| < 0.25  | :x:                |
+We release patches for security vulnerabilities for the current version(s).
 
 **Note:** We generally support the current major/minor release and the previous minor release. Users are encouraged to update to the latest version to receive security updates.
 
